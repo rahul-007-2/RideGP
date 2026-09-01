@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Provider as GestureHandlerProvider } from 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AuthScreen from './src/screens/AuthScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import CommunityScreen from './src/screens/CommunityScreen';
@@ -39,7 +39,7 @@ export default function App() {
   );
 
   return (
-    <GestureHandlerProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <NavigationContainer>
         <Stack.Navigator>
           {user ? (
@@ -54,6 +54,6 @@ export default function App() {
           )}
         </Stack.Navigator>
       </NavigationContainer>
-    </GestureHandlerProvider>
+    </GestureHandlerRootView>
   );
 }
