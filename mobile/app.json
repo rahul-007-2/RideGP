@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "RideGP",
+    "slug": "ridegp",
+    "version": "1.0.0",
+    "sdkVersion": "48.0.0",
+    "platforms": ["ios","android","web"],
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    }
+    ,
+    "android": {
+      "config": {
+        "googleMaps": {
+          "apiKey": ""
+        }
+      }
+      ,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ]
+    },
+    "ios": {
+      "config": {
+        "googleMapsApiKey": ""
+      }
+    }
+  }
+}
