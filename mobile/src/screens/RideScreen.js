@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,7 @@ import {
   Alert,
   ActivityIndicator,
   TouchableOpacity,
-  SafeAreaView,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Polyline, Marker } from 'react-native-maps';
@@ -15,7 +15,9 @@ import { computeRideMetrics, estimateFuelCost, computeRideScore } from '../lib/r
 import { FUEL_EFFICIENCY_KM_PER_L, FUEL_PRICE_PER_L, API_URL } from '@env';
 import { startBackgroundTracking, stopBackgroundTracking, getInProgressRide } from '../lib/background';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';export default function RideScreen({ navigation }) {
+import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';
+
+export default function RideScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [tracking, setTracking] = useState(false);
   const [points, setPoints] = useState([]);
@@ -24,11 +26,17 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';expor
   const [elapsedTime, setElapsedTime] = useState(0);
   const [userBikes, setUserBikes] = useState([]);
   const [selectedBike, setSelectedBike] = useState(null);
-  const intervalRef = useRef(null);
-  const startTimeRef = useRef(null);
+  const [bgTrackingActive, setBgTrackingActive] = useState(false);
+  const foregroundIntervalRef = useRef(null);
   const timerRef = useRef(null);
+  const pointsRef = useRef([]);
 
   const serverUrl = (API_URL && API_URL.length > 0) ? API_URL : 'http://localhost:3000';
+
+  // Keep ref in sync with state for cleanup
+  useEffect(() => {
+    pointsRef.current = points;
+  }, [points]);
 
   useEffect(() => {
     (async () => {
@@ -44,81 +52,152 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';expor
         }
       } catch (e) { console.warn('Load bikes error', e.message); }
 
+      // Request foreground location permission
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission required', 'Location permission is required to track rides');
+        return;
       }
+
+      // Also request background permission for iOS
+      try {
+        const bgStatus = await Location.requestBackgroundPermissionsAsync();
+        if (bgStatus.status !== 'granted') {
+          console.warn('Background location permission not granted');
+        }
+      } catch (e) {
+        console.warn('Background permission request failed:', e.message);
+      }
+
+      // Check for in-progress ride
       const inProg = await getInProgressRide();
       if (inProg && inProg.points && inProg.points.length > 0) {
         Alert.alert('Resume ride', 'An in-progress ride was found. Resume or discard?', [
-          { text: 'Discard', onPress: async () => { await AsyncStorage.removeItem('in_progress_ride'); } },
-          { text: 'Resume', onPress: () => setPoints(inProg.points) },
+          {
+            text: 'Discard',
+            onPress: async () => {
+              await AsyncStorage.removeItem('in_progress_ride');
+              await stopBackgroundTracking();
+            }
+          },
+          {
+            text: 'Resume',
+            onPress: () => {
+              setPoints(inProg.points);
+              pointsRef.current = inProg.points;
+              // Auto-start tracking
+              startTracking();
+            }
+          },
         ]);
       }
     })();
+
     return () => {
-      stopTracking();
-      if (timerRef.current) clearInterval(timerRef.current);
+      cleanupTracking();
     };
   }, []);
 
-  function sampleLocation(loc) {
+  const cleanupTracking = () => {
+    if (foregroundIntervalRef.current) {
+      clearInterval(foregroundIntervalRef.current);
+      foregroundIntervalRef.current = null;
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const sampleLocation = useCallback((loc) => {
     const point = {
       latitude: loc.coords.latitude,
       longitude: loc.coords.longitude,
       timestamp: Date.now(),
       speed_kmh: loc.coords.speed != null ? loc.coords.speed * 3.6 : 0,
     };
-    setPoints((prev) => [...prev, point]);
+    setPoints((prev) => {
+      // Deduplicate: skip if last point is < 1 second and < 5 meters ago
+      if (prev.length > 0) {
+        const last = prev[prev.length - 1];
+        const dt = (point.timestamp - last.timestamp) / 1000;
+        if (dt < 1) return prev;
+      }
+      return [...prev, point];
+    });
     setRegion({ latitude: point.latitude, longitude: point.longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 });
-  }
+  }, []);
 
   async function startTracking() {
     setPoints([]);
+    pointsRef.current = [];
     setElapsedTime(0);
     setTracking(true);
-    startTimeRef.current = Date.now();
 
+    // Start timer
     timerRef.current = setInterval(() => {
       setElapsedTime((prev) => prev + 1);
     }, 1000);
 
-    const started = await startBackgroundTracking();
-    if (!started) {
-      try {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
-        sampleLocation(loc);
-      } catch (err) {
-        console.error('Get location error:', err);
-      }
+    // Start background tracking (for when user minimizes)
+    const bgStarted = await startBackgroundTracking();
+    setBgTrackingActive(bgStarted);
 
-      intervalRef.current = setInterval(async () => {
-        try {
-          const p = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          sampleLocation(p);
-        } catch (err) {
-          console.error('Sample location error:', err);
-        }
-      }, 4000);
+    // Also start foreground interval (for live stats when app is open)
+    // Take an initial reading
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+      sampleLocation(loc);
+    } catch (err) {
+      console.error('Get initial location error:', err);
     }
+
+    // Foreground polling every 3 seconds — always run this so live stats update
+    foregroundIntervalRef.current = setInterval(async () => {
+      try {
+        const p = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        sampleLocation(p);
+      } catch (err) {
+        console.error('Sample location error:', err);
+      }
+    }, 3000);
   }
 
   async function stopTracking() {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
+    cleanupTracking();
     setTracking(false);
 
+    // Stop background task and get its points
     const bgPoints = await stopBackgroundTracking();
-    const allPoints = (points || []).concat(bgPoints || []);
+    setBgTrackingActive(false);
+
+    // Merge foreground points with background points, deduplicate by timestamp proximity
+    const fgPoints = pointsRef.current;
+    let allPoints = [...fgPoints];
+
+    if (bgPoints && bgPoints.length > 0) {
+      for (const bgPt of bgPoints) {
+        // Check if this bg point is already covered by a foreground point
+        const isDuplicate = allPoints.some(
+          (fgPt) => Math.abs(fgPt.timestamp - bgPt.timestamp) < 2000 // 2 second window
+        );
+        if (!isDuplicate) {
+          allPoints.push({
+            latitude: bgPt.latitude,
+            longitude: bgPt.longitude,
+            timestamp: bgPt.timestamp,
+            speed_kmh: bgPt.speed || bgPt.speed_kmh || 0,
+          });
+        }
+      }
+      // Sort by timestamp
+      allPoints.sort((a, b) => a.timestamp - b.timestamp);
+    }
 
     if (allPoints.length < 2) {
-      return Alert.alert('No ride recorded', 'Ride was too short to record.');
+      Alert.alert('No ride recorded', 'Ride was too short to record.');
+      setSaving(false);
+      return;
     }
 
     setSaving(true);
@@ -133,6 +212,7 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';expor
 
       const metrics = computeRideMetrics(allPoints);
       const user = JSON.parse(await AsyncStorage.getItem('user'));
+
       // Use selected bike's fuel data if available
       const bikeFuelEff = selectedBike?.fuel_efficiency_kmpl || user?.fuel_efficiency_kmpl || 40;
       const bikeFuelPrice = selectedBike?.fuel_price_per_liter || user?.fuel_price_per_liter || 90;
@@ -160,7 +240,9 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';expor
       });
 
       if (!response.ok) throw new Error('Failed to save ride');
+      const rideData = await response.json();
 
+      // Update streak
       await fetch(`${serverUrl}/api/gamification/streak/update`, {
         method: 'POST',
         headers: {
@@ -170,6 +252,7 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';expor
         body: JSON.stringify({ rideDate: new Date().toISOString() }),
       });
 
+      // Check achievements
       await fetch(`${serverUrl}/api/gamification/achievements/check`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}` },
@@ -177,11 +260,12 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';expor
 
       Alert.alert(
         'Ride Saved! 🎉',
-        `Distance: ${metrics.distance_km.toFixed(1)} km\nDuration: ${Math.round(metrics.duration_s / 60)} min\nScore: ${score}/100\nFuel Cost: ₹${fuelCost.toFixed(0)}`,
-        [{ text: 'OK', onPress: () => navigation.navigate('Home') }]
+        `Distance: ${metrics.distance_km.toFixed(1)} km\nDuration: ${Math.round(metrics.duration_s / 60)} min\nScore: ${Math.round(score)}/100\nFuel Cost: ₹${fuelCost.toFixed(0)}`,
+        [{ text: 'OK', onPress: () => navigation.navigate('MainTabs', { screen: 'Home', params: { refreshRide: true } }) }]
       );
 
       setPoints([]);
+      pointsRef.current = [];
       await AsyncStorage.removeItem('in_progress_ride');
     } catch (err) {
       console.error('Save ride error:', err);
@@ -227,13 +311,23 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';expor
       </MapView>
 
       {/* Back Button Overlay */}
-      <TouchableOpacity
-        style={[styles.backButton, { top: insets.top + 12 }]}
-        onPress={() => navigation.goBack()}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.backButtonText}>‹</Text>
-      </TouchableOpacity>
+      {!tracking && (
+        <TouchableOpacity
+          style={[styles.backButton, { top: insets.top + 12 }]}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.backButtonText}>‹</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Tracking indicator */}
+      {tracking && bgTrackingActive && (
+        <View style={[styles.bgIndicator, { top: insets.top + 12 }]}>
+          <View style={styles.bgDot} />
+          <Text style={styles.bgText}>Recording{Platform.OS === 'ios' ? ' — continues in background' : ''}</Text>
+        </View>
+      )}
 
       {/* Bottom Panel */}
       <View style={[styles.bottomPanel, { paddingBottom: insets.bottom + 16 }]}>
@@ -254,7 +348,7 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';expor
           </View>
         )}
 
-        {/* Bike Selector */}
+        {/* Bike Selector — only shown when not tracking */}
         {!tracking && userBikes.length > 0 && (
           <View style={styles.bikeSelector}>
             <Text style={styles.bikeSelectorLabel}>Riding:</Text>
@@ -291,8 +385,8 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';expor
           )}
         </TouchableOpacity>
 
-        {/* Ride Summary */}
-        {metricsPreview && !tracking && (
+        {/* Ride Summary after stopping */}
+        {metricsPreview && !tracking && !saving && (
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Ride Summary</Text>
             <View style={styles.summaryGrid}>
@@ -345,6 +439,28 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontWeight: '300',
     marginTop: -2,
+  },
+  bgIndicator: {
+    position: 'absolute',
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  bgDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FF3B30',
+    marginRight: 8,
+  },
+  bgText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
   },
   bottomPanel: {
     position: 'absolute',

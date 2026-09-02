@@ -7,11 +7,14 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityIndicator, View, Text, StyleSheet } from 'react-native';
 
+import { AuthProvider, useAuth } from './src/lib/AuthContext';
+
 // Import screens
 import AuthScreen from './src/screens/AuthScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import RideScreen from './src/screens/RideScreen';
 import RideHistoryScreen from './src/screens/RideHistoryScreen';
+import RideDetailScreen from './src/screens/RideDetailScreen';
 import AchievementsScreen from './src/screens/AchievementsScreen';
 import CommunityScreen from './src/screens/CommunityScreen';
 import MonthlyWrappedScreen from './src/screens/MonthlyWrappedScreen';
@@ -85,9 +88,9 @@ function MainTabs() {
   );
 }
 
-// ─── Main App ─────────────────────────────────────────────────────
-export default function App() {
-  const [user, setUser] = useState(null);
+// ─── Inner App (needs to be inside AuthProvider) ──────────────────
+function AppInner() {
+  const { user, setUser, signIn } = useAuth();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -114,7 +117,7 @@ export default function App() {
   }, [user]);
 
   const handleLoginSuccess = (userData) => {
-    setUser(userData);
+    signIn(userData);
   };
 
   if (loading) {
@@ -129,35 +132,45 @@ export default function App() {
   }
 
   return (
+    <NavigationContainer>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          contentStyle: { backgroundColor: Colors.background },
+        }}
+      >
+        {user ? (
+          <>
+            <Stack.Screen name="MainTabs" component={MainTabs} />
+            <Stack.Screen name="Ride" component={RideScreen} options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="RideDetail" component={RideDetailScreen} />
+            <Stack.Screen name="Community" component={CommunityScreen} />
+            <Stack.Screen name="Insights" component={InsightsScreen} />
+            <Stack.Screen name="Wrapped" component={MonthlyWrappedScreen} />
+            <Stack.Screen name="Groups" component={BroadcastScreen} />
+            <Stack.Screen name="GroupChat" component={GroupChatScreen} />
+          </>
+        ) : (
+          <Stack.Screen
+            name="Auth"
+            component={(props) => <AuthScreen {...props} onLoginSuccess={handleLoginSuccess} />}
+            options={{ animationEnabled: false }}
+          />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────
+export default function App() {
+  return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer>
-          <Stack.Navigator
-            screenOptions={{
-              headerShown: false,
-              animation: 'slide_from_right',
-              contentStyle: { backgroundColor: Colors.background },
-            }}
-          >
-            {user ? (
-              <>
-                <Stack.Screen name="MainTabs" component={MainTabs} />
-                <Stack.Screen name="Ride" component={RideScreen} options={{ animation: 'slide_from_bottom' }} />
-                <Stack.Screen name="Community" component={CommunityScreen} />
-                <Stack.Screen name="Insights" component={InsightsScreen} />
-                <Stack.Screen name="Wrapped" component={MonthlyWrappedScreen} />
-                <Stack.Screen name="Groups" component={BroadcastScreen} />
-                <Stack.Screen name="GroupChat" component={GroupChatScreen} />
-              </>
-            ) : (
-              <Stack.Screen
-                name="Auth"
-                component={(props) => <AuthScreen {...props} onLoginSuccess={handleLoginSuccess} />}
-                options={{ animationEnabled: false }}
-              />
-            )}
-          </Stack.Navigator>
-        </NavigationContainer>
+        <AuthProvider>
+          <AppInner />
+        </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

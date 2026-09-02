@@ -21,4 +21,7 @@ router.get('/history/range', ridesController.getRidesByDateRange);
 // Compare rides
 router.post('/compare', ridesController.compareRides);
 
+// Update a ride
+router.put('/:rideId', ridesController.updateRide);
+
 module.exports = router;

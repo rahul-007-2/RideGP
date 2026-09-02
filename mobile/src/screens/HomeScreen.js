@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,9 +13,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';
 import { Card, EmptyState } from '../lib/components';
 import { API_URL } from '@env';
+import { useAuth } from '../lib/AuthContext';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 
 export default function HomeScreen({ navigation }) {
+  const route = useRoute();
   const insets = useSafeAreaInsets();
+  const { user: authUser } = useAuth();
   const [user, setUser] = useState(null);
   const [streak, setStreak] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -31,7 +35,7 @@ export default function HomeScreen({ navigation }) {
       const userData = await AsyncStorage.getItem('user');
 
       if (!authToken || !userData) {
-        navigation.getParent()?.reset({ index: 0, routes: [{ name: 'Auth' }] });
+        // Token missing — will be handled by AuthContext
         return;
       }
 
@@ -88,9 +92,21 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
+  // Refresh whenever screen is focused (handles ride completion, coming back from other screens)
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboardData();
+    }, [])
+  );
+
+  // Also refresh when navigation param signals a new ride was completed
   useEffect(() => {
-    loadDashboardData();
-  }, []);
+    if (route.params?.refreshRide) {
+      loadDashboardData();
+      // Clear the param so it doesn't re-trigger
+      navigation.setParams({ refreshRide: false });
+    }
+  }, [route.params?.refreshRide]);
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);

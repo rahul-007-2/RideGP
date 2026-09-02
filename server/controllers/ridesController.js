@@ -2,6 +2,7 @@ const Ride = require('../models/Ride');
 const User = require('../models/User');
 const RouteCohort = require('../models/RouteCohort');
 const { computeRideMetrics, computeRideScore, estimateFuelCost, hashCoordinates, isCommuteDay } = require('../config/rideUtils');
+const { regenerateMonthlyWrapped } = require('../controllers/communityController');
 
 /**
  * Create/ingest a new ride
@@ -119,6 +120,13 @@ async function createRide(req, res) {
       cohort.last_updated = new Date();
       await cohort.save();
     }
+
+    // Auto-regenerate monthly wrapped after ride completion
+    const rideMonth = startTime.getMonth() + 1;
+    const rideYear = startTime.getFullYear();
+    regenerateMonthlyWrapped(userId, rideMonth, rideYear).catch(err =>
+      console.error('Auto-regenerate wrapped failed:', err.message)
+    );
 
     res.status(201).json({
       message: 'Ride created successfully',
@@ -268,10 +276,39 @@ async function getRidesByDateRange(req, res) {
   }
 }
 
+/**
+ * Update a ride (e.g. route name)
+ */
+async function updateRide(req, res) {
+  try {
+    const { rideId } = req.params;
+    const userId = req.user.userId;
+    const updates = req.body;
+
+    const ride = await Ride.findById(rideId);
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.user_id.toString() !== userId) return res.status(403).json({ error: 'Unauthorized' });
+
+    // Only allow updating certain fields
+    const allowed = ['route_name', 'ride_type', 'is_favourite'];
+    for (const key of allowed) {
+      if (updates[key] !== undefined) ride[key] = updates[key];
+    }
+    ride.updated_at = new Date();
+    await ride.save();
+
+    res.json({ ride: ride.toObject() });
+  } catch (err) {
+    console.error('Update ride error:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   createRide,
   getRide,
   getUserRides,
   compareRides,
-  getRidesByDateRange
+  getRidesByDateRange,
+  updateRide
 };

@@ -61,6 +61,7 @@ const RideSchema = new Schema({
   
   // Status
   is_completed: { type: Boolean, default: true },
+  is_favourite: { type: Boolean, default: false },
   ride_type: { type: String, enum: ['commute', 'leisure', 'delivery'], default: 'commute' },
   
   created_at: { type: Date, default: Date.now },

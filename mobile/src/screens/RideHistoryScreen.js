@@ -101,6 +101,9 @@ export default function RideHistoryScreen({ navigation }) {
             style={{ paddingHorizontal: 14 }}
           />
         )}
+        {rides.length > 0 && selectedRides.length === 0 && (
+          <Text style={styles.hintText}>Tap a ride for details · Long press to compare</Text>
+        )}
       </View>
 
       <ScrollView
@@ -119,7 +122,8 @@ export default function RideHistoryScreen({ navigation }) {
               <TouchableOpacity
                 key={ride._id}
                 style={[styles.rideCard, isSelected && styles.rideCardSelected]}
-                onPress={() => toggleRideSelection(ride._id)}
+                onPress={() => navigation.navigate('RideDetail', { rideId: ride._id, ride })}
+                onLongPress={() => toggleRideSelection(ride._id)}
                 activeOpacity={0.7}
               >
                 <View style={styles.rideHeader}>
@@ -138,8 +142,8 @@ export default function RideHistoryScreen({ navigation }) {
                     </Text>
                   </View>
                   <View style={[styles.scoreBadge, isSelected && styles.scoreBadgeSelected]}>
-                    <Text style={styles.scoreText}>{ride.score ? Math.round(ride.score) : '--'}</Text>
-                    <Text style={styles.scoreUnit}>pts</Text>
+                    <Text style={[styles.scoreText, isSelected && styles.scoreTextSelected]}>{ride.score ? Math.round(ride.score) : '--'}</Text>
+                    <Text style={[styles.scoreUnit, isSelected && styles.scoreUnitSelected]}>pts</Text>
                   </View>
                 </View>
 
@@ -175,7 +179,12 @@ export default function RideHistoryScreen({ navigation }) {
                   ) : null}
                 </View>
 
-                {isSelected && <View style={styles.selectedIndicator} />}
+                {isSelected && (
+                  <View style={styles.selectedIndicator}>
+                    <Text style={styles.checkText}>✓</Text>
+                  </View>
+                )}
+                {!isSelected && <Text style={styles.chevron}>›</Text>}
               </TouchableOpacity>
             );
           })
@@ -210,6 +219,7 @@ const styles = StyleSheet.create({
   listContainer: {
     paddingHorizontal: Spacing.lg,
   },
+  hintText: { ...Typography.small, textAlign: 'center', marginBottom: 8, color: Colors.textMuted },
   rideCard: {
     backgroundColor: Colors.surface,
     borderRadius: Radii.lg,
@@ -289,11 +299,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 12,
     right: 12,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  checkText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  scoreTextSelected: { color: '#fff' },
+  scoreUnitSelected: { color: 'rgba(255,255,255,0.8)' },
+  chevron: { position: 'absolute', top: 14, right: 12, fontSize: 22, color: Colors.textMuted, fontWeight: '300' },
 });

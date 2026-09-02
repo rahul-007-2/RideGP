@@ -9,6 +9,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -24,6 +27,11 @@ export default function GroupChatScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [myUserId, setMyUserId] = useState(null);
+  const [showMembers, setShowMembers] = useState(false);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [members, setMembers] = useState([]);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [addingMember, setAddingMember] = useState(false);
   const flatListRef = useRef(null);
   const serverUrl = (API_URL && API_URL.length > 0) ? API_URL : 'http://localhost:3000';
 
@@ -47,11 +55,32 @@ export default function GroupChatScreen({ navigation, route }) {
     }
   };
 
-  useFocusEffect(useCallback(() => { loadMessages(); }, []));
+  const loadMembers = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const res = await fetch(`${serverUrl}/api/chat/groups/${groupId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMembers(data.group?.members || []);
+      }
+    } catch (err) {
+      console.error('Load members error:', err);
+    }
+  };
+
+  useFocusEffect(useCallback(() => {
+    loadMessages();
+    loadMembers();
+  }, []));
 
   // Poll for new messages every 5 seconds
   useEffect(() => {
-    const interval = setInterval(loadMessages, 5000);
+    const interval = setInterval(() => {
+      loadMessages();
+      loadMembers();
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -76,6 +105,65 @@ export default function GroupChatScreen({ navigation, route }) {
     } finally {
       setSending(false);
     }
+  };
+
+  const addMember = async () => {
+    if (!newMemberEmail.trim() || addingMember) return;
+    setAddingMember(true);
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const res = await fetch(`${serverUrl}/api/chat/groups/${groupId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ member_emails: [newMemberEmail.trim().toLowerCase()] }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMembers(data.group?.members || []);
+        setNewMemberEmail('');
+        setShowAddMember(false);
+        Alert.alert('Added!', `${newMemberEmail} has been added to the group`);
+        // Send a system-like message
+        const token2 = await AsyncStorage.getItem('authToken');
+        const userData = await AsyncStorage.getItem('user');
+        const userName = userData ? JSON.parse(userData).name : 'Someone';
+        await fetch(`${serverUrl}/api/chat/groups/${groupId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token2}` },
+          body: JSON.stringify({ text: `👋 ${userName} added ${newMemberEmail} to the group` }),
+        });
+        loadMessages();
+      } else {
+        const data = await res.json();
+        Alert.alert('Error', data.error || 'Failed to add member. Make sure the email is registered.');
+      }
+    } catch (err) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setAddingMember(false);
+    }
+  };
+
+  const leaveGroup = async () => {
+    Alert.alert('Leave Group', 'Are you sure you want to leave this group?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Leave',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const token = await AsyncStorage.getItem('authToken');
+            await fetch(`${serverUrl}/api/chat/groups/${groupId}/leave`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            navigation.goBack();
+          } catch (err) {
+            Alert.alert('Error', err.message);
+          }
+        }
+      }
+    ]);
   };
 
   const formatTime = (dateStr) => {
@@ -138,10 +226,13 @@ export default function GroupChatScreen({ navigation, route }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backArrow}>‹</Text>
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
+        <TouchableOpacity style={styles.headerCenter} onPress={() => setShowMembers(true)}>
           <Text style={styles.headerTitle} numberOfLines={1}>{groupName}</Text>
-        </View>
-        <View style={{ width: 40 }} />
+          <Text style={styles.memberCount}>{members.length} member{members.length !== 1 ? 's' : ''}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setShowMembers(true)} style={styles.infoBtn}>
+          <Text style={styles.infoBtnText}>ℹ️</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Messages */}
@@ -178,9 +269,89 @@ export default function GroupChatScreen({ navigation, route }) {
           disabled={!text.trim() || sending}
           activeOpacity={0.7}
         >
-          <Text style={styles.sendBtnText}>↑</Text>
+          {sending ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.sendBtnText}>↑</Text>
+          )}
         </TouchableOpacity>
       </View>
+
+      {/* Members Panel */}
+      <Modal visible={showMembers} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalHeader, { paddingTop: insets.top + Spacing.md }]}>
+            <TouchableOpacity onPress={() => setShowMembers(false)}>
+              <Text style={styles.modalCancel}>Done</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Members</Text>
+            <TouchableOpacity onPress={() => { setShowAddMember(true); }}>
+              <Text style={styles.modalAction}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.memberList} showsVerticalScrollIndicator={false}>
+            {members.map((member) => (
+              <View key={member._id} style={styles.memberRow}>
+                <View style={styles.memberAvatar}>
+                  <Text style={styles.memberAvatarText}>{(member.name || 'U').charAt(0).toUpperCase()}</Text>
+                </View>
+                <View style={styles.memberInfo}>
+                  <Text style={styles.memberName}>{member.name || 'Unknown'}</Text>
+                  <Text style={styles.memberEmail}>{member.email || ''}</Text>
+                </View>
+              </View>
+            ))}
+
+            <TouchableOpacity style={styles.addMemberBtn} onPress={() => setShowAddMember(true)}>
+              <Text style={styles.addMemberBtnText}>+ Add New Member</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.leaveGroupBtn} onPress={leaveGroup}>
+              <Text style={styles.leaveGroupBtnText}>🚪 Leave Group</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Add Member Modal */}
+      <Modal visible={showAddMember} animationType="fade" transparent>
+        <View style={styles.overlay}>
+          <View style={styles.addMemberCard}>
+            <Text style={styles.addMemberTitle}>Add Member</Text>
+            <Text style={styles.addMemberHint}>Enter the email of a registered user</Text>
+            <TextInput
+              style={styles.addMemberInput}
+              value={newMemberEmail}
+              onChangeText={setNewMemberEmail}
+              placeholder="friend@email.com"
+              placeholderTextColor={Colors.textMuted}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoFocus
+            />
+            <View style={styles.addMemberActions}>
+              <TouchableOpacity
+                style={styles.addMemberCancel}
+                onPress={() => { setShowAddMember(false); setNewMemberEmail(''); }}
+              >
+                <Text style={styles.addMemberCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.addMemberSubmit, (!newMemberEmail.trim() || addingMember) && styles.addMemberSubmitDisabled]}
+                onPress={addMember}
+                disabled={!newMemberEmail.trim() || addingMember}
+              >
+                {addingMember ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.addMemberSubmitText}>Add</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -199,6 +370,9 @@ const styles = StyleSheet.create({
   backArrow: { fontSize: 26, color: Colors.text, fontWeight: '300', marginTop: -2 },
   headerCenter: { flex: 1, alignItems: 'center' },
   headerTitle: { ...Typography.h3, fontSize: 16 },
+  memberCount: { ...Typography.small, marginTop: 2, color: Colors.textSecondary },
+  infoBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  infoBtnText: { fontSize: 18 },
   messagesList: { paddingHorizontal: Spacing.lg, paddingTop: 12, paddingBottom: 8 },
   dateSeparator: { alignItems: 'center', marginVertical: 12 },
   dateText: { ...Typography.small, backgroundColor: Colors.borderLight, paddingHorizontal: 12, paddingVertical: 4, borderRadius: Radii.full },
@@ -232,4 +406,61 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { opacity: 0.4 },
   sendBtnText: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  // Modal styles
+  modalContainer: { flex: 1, backgroundColor: Colors.background },
+  modalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md,
+    borderBottomWidth: 1, borderBottomColor: Colors.border,
+  },
+  modalCancel: { color: Colors.textSecondary, fontSize: 16 },
+  modalTitle: { ...Typography.h3 },
+  modalAction: { color: Colors.primary, fontSize: 16, fontWeight: '700' },
+  memberList: { paddingHorizontal: Spacing.lg, paddingTop: 12 },
+  memberRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
+  },
+  memberAvatar: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: Colors.primary + '20', alignItems: 'center', justifyContent: 'center', marginRight: 12,
+  },
+  memberAvatarText: { fontSize: 16, fontWeight: '700', color: Colors.primary },
+  memberInfo: { flex: 1 },
+  memberName: { ...Typography.body, fontWeight: '600', fontSize: 15 },
+  memberEmail: { ...Typography.small, marginTop: 2, color: Colors.textSecondary },
+  addMemberBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.primary + '10', borderRadius: Radii.lg,
+    padding: 16, marginTop: 20,
+  },
+  addMemberBtnText: { color: Colors.primary, fontWeight: '700', fontSize: 15 },
+  leaveGroupBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.error + '10', borderRadius: Radii.lg,
+    padding: 16, marginTop: 12, marginBottom: 40,
+  },
+  leaveGroupBtnText: { color: Colors.error, fontWeight: '700', fontSize: 15 },
+  // Add member overlay
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  addMemberCard: {
+    backgroundColor: Colors.surface, borderRadius: Radii.xl, padding: 24,
+    width: '100%', maxWidth: 400, ...Shadows.large,
+  },
+  addMemberTitle: { ...Typography.h2, fontSize: 20, marginBottom: 4 },
+  addMemberHint: { ...Typography.caption, marginBottom: 16 },
+  addMemberInput: {
+    backgroundColor: Colors.borderLight, borderRadius: Radii.sm,
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 15,
+    color: Colors.text, borderWidth: 1, borderColor: 'transparent', marginBottom: 20,
+  },
+  addMemberActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
+  addMemberCancel: { paddingHorizontal: 20, paddingVertical: 10 },
+  addMemberCancelText: { color: Colors.textSecondary, fontSize: 15, fontWeight: '600' },
+  addMemberSubmit: {
+    backgroundColor: Colors.primary, borderRadius: Radii.sm,
+    paddingHorizontal: 24, paddingVertical: 10, minWidth: 80, alignItems: 'center',
+  },
+  addMemberSubmitDisabled: { opacity: 0.5 },
+  addMemberSubmitText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });

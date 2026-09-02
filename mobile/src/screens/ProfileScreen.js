@@ -16,6 +16,7 @@ import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';
 import { PrimaryButton, DangerButton, SecondaryButton, Card, StatItem } from '../lib/components';
 import { API_URL } from '@env';
 import { useFocusEffect } from '@react-navigation/native';
+import { useAuth } from '../lib/AuthContext';
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -45,6 +46,7 @@ export default function ProfileScreen({ navigation }) {
   const [fuelEfficiency, setFuelEfficiency] = useState('40');
   const [fuelPrice, setFuelPrice] = useState('90');
 
+  const { signOut } = useAuth();
   const serverUrl = (API_URL && API_URL.length > 0) ? API_URL : 'http://localhost:3000';
 
   const loadProfile = async () => {
@@ -54,7 +56,7 @@ export default function ProfileScreen({ navigation }) {
       const userData = await AsyncStorage.getItem('user');
 
       if (!authToken || !userData) {
-        navigation.getParent()?.reset({ index: 0, routes: [{ name: 'Auth' }] });
+        // Token missing — AuthContext will handle redirect
         return;
       }
 
@@ -220,10 +222,7 @@ export default function ProfileScreen({ navigation }) {
   };
 
   async function handleSignOut() {
-    await AsyncStorage.removeItem('authToken');
-    await AsyncStorage.removeItem('user');
-    // Reset the root stack navigator (parent of the tab navigator)
-    navigation.getParent()?.reset({ index: 0, routes: [{ name: 'Auth' }] });
+    await signOut();
   }
 
   if (loading) {

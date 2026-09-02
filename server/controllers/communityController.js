@@ -242,105 +242,14 @@ async function getMonthlyWrapped(req, res) {
     const targetMonth = parseInt(month) || now.getMonth() + 1;
     const targetYear = parseInt(year) || now.getFullYear();
 
-    // Check if wrapped already exists
-    let wrapped = await MonthlyWrapped.findOne({
-      user_id: userId,
-      month: targetMonth,
-      year: targetYear
-    }).populate('best_ride_id average_ride_id longest_ride_id achievements_unlocked');
-
-    if (!wrapped) {
-      // Generate wrapped
-      const monthStart = new Date(targetYear, targetMonth - 1, 1);
-      const monthEnd = new Date(targetYear, targetMonth, 0);
-
-      const rides = await Ride.find({
-        user_id: userId,
-        start_time: { $gte: monthStart, $lte: monthEnd }
-      }).sort({ score: -1 });
-
-      if (rides.length === 0) {
-        return res.status(404).json({ error: 'No rides in this month' });
-      }
-
-      const totalDistance = rides.reduce((sum, r) => sum + (r.metrics?.distance_km || 0), 0);
-      const totalTime = rides.reduce((sum, r) => sum + (r.metrics?.duration_minutes || 0), 0);
-      const totalCost = rides.reduce((sum, r) => sum + (r.fuel_cost || 0), 0);
-      const avgScore = rides.reduce((sum, r) => sum + (r.score || 0), 0) / rides.length;
-
-      const bestRide = rides[0];
-      const sortedByDistance = [...rides].sort((a, b) => (b.metrics?.distance_km || 0) - (a.metrics?.distance_km || 0));
-      const longestRide = sortedByDistance[0];
-
-      // Calculate percentiles (simplified)
-      const smoothnessPercentile = Math.round((avgScore / 100) * 100);
-
-      // ─── Bike-wise breakdown ────────────────────────────────────
-      const bikeMap = {};
-      for (const ride of rides) {
-        const bId = ride.bike_id || 'unknown';
-        if (!bikeMap[bId]) {
-          bikeMap[bId] = {
-            bike_id: bId,
-            bike_name: ride.bike_name || 'Unknown Bike',
-            rides: 0,
-            total_distance_km: 0,
-            total_time_minutes: 0,
-            total_fuel_cost: 0,
-            scores: [],
-            best_score: 0
-          };
-        }
-        const b = bikeMap[bId];
-        b.rides += 1;
-        b.total_distance_km += ride.metrics?.distance_km || 0;
-        b.total_time_minutes += ride.metrics?.duration_minutes || 0;
-        b.total_fuel_cost += ride.fuel_cost || 0;
-        b.scores.push(ride.score || 0);
-        if ((ride.score || 0) > b.best_score) b.best_score = ride.score;
-      }
-
-      const bikeStats = Object.values(bikeMap).map(b => ({
-        bike_id: b.bike_id,
-        bike_name: b.bike_name,
-        rides: b.rides,
-        total_distance_km: Math.round(b.total_distance_km * 100) / 100,
-        total_time_minutes: Math.round(b.total_time_minutes * 100) / 100,
-        total_fuel_cost: Math.round(b.total_fuel_cost * 100) / 100,
-        avg_score: b.scores.length > 0 ? Math.round((b.scores.reduce((a, c) => a + c, 0) / b.scores.length) * 100) / 100 : 0,
-        best_score: b.best_score,
-        distance_share: totalDistance > 0 ? Math.round((b.total_distance_km / totalDistance) * 100) : 0
-      })).sort((a, b) => b.rides - a.rides);
-
-      // Most ridden bike
-      const mostRiddenBike = bikeStats.length > 0 ? bikeStats[0] : null;
-      // Best scoring bike (with at least 2 rides)
-      const bestScoringBike = bikeStats.filter(b => b.rides >= 2).sort((a, b) => b.avg_score - a.avg_score)[0] || null;
-
-      wrapped = new MonthlyWrapped({
-        user_id: userId,
-        month: targetMonth,
-        year: targetYear,
-        total_distance_km: Math.round(totalDistance * 100) / 100,
-        total_riding_time_minutes: Math.round(totalTime * 100) / 100,
-        total_fuel_cost: Math.round(totalCost * 100) / 100,
-        total_rides: rides.length,
-        average_ride_score: Math.round(avgScore * 100) / 100,
-        best_ride_id: bestRide._id,
-        best_ride_score: bestRide.score,
-        longest_ride_id: longestRide._id,
-        longest_ride_distance: longestRide.metrics?.distance_km,
-        most_used_route: 'Top Route',
-        smoothness_percentile: smoothnessPercentile,
-        bike_stats: bikeStats,
-        most_ridden_bike: mostRiddenBike?.bike_name || null,
-        best_scoring_bike: bestScoringBike?.bike_name || null
-      });
-
-      await wrapped.save();
+    // Always regenerate to ensure data is current after each ride
+    const regenerated = await regenerateMonthlyWrapped(userId, targetMonth, targetYear);
+    if (regenerated) {
+      return res.json({ wrapped: regenerated });
     }
 
-    res.json({ wrapped: wrapped.toObject() });
+    // If no rides this month, return 404
+    return res.status(404).json({ error: 'No rides in this month' });
   } catch (err) {
     console.error('Get monthly wrapped error:', err);
     res.status(500).json({ error: err.message });
@@ -392,6 +301,92 @@ async function createPost(req, res) {
   }
 }
 
+/**
+ * Regenerate monthly wrapped for a user and month (called after each ride)
+ */
+async function regenerateMonthlyWrapped(userId, targetMonth, targetYear) {
+  try {
+    const monthStart = new Date(targetYear, targetMonth - 1, 1);
+    const monthEnd = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
+
+    const rides = await Ride.find({
+      user_id: userId,
+      start_time: { $gte: monthStart, $lte: monthEnd }
+    }).sort({ score: -1 });
+
+    if (rides.length === 0) return null;
+
+    const totalDistance = rides.reduce((sum, r) => sum + (r.metrics?.distance_km || 0), 0);
+    const totalTime = rides.reduce((sum, r) => sum + (r.metrics?.duration_minutes || 0), 0);
+    const totalCost = rides.reduce((sum, r) => sum + (r.fuel_cost || 0), 0);
+    const avgScore = rides.reduce((sum, r) => sum + (r.score || 0), 0) / rides.length;
+
+    const bestRide = rides[0];
+    const sortedByDistance = [...rides].sort((a, b) => (b.metrics?.distance_km || 0) - (a.metrics?.distance_km || 0));
+    const longestRide = sortedByDistance[0];
+
+    const smoothnessPercentile = Math.round((avgScore / 100) * 100);
+
+    // Bike-wise breakdown
+    const bikeMap = {};
+    for (const ride of rides) {
+      const bId = ride.bike_id || 'unknown';
+      if (!bikeMap[bId]) {
+        bikeMap[bId] = {
+          bike_id: bId, bike_name: ride.bike_name || 'Unknown Bike',
+          rides: 0, total_distance_km: 0, total_time_minutes: 0,
+          total_fuel_cost: 0, scores: [], best_score: 0
+        };
+      }
+      const b = bikeMap[bId];
+      b.rides += 1;
+      b.total_distance_km += ride.metrics?.distance_km || 0;
+      b.total_time_minutes += ride.metrics?.duration_minutes || 0;
+      b.total_fuel_cost += ride.fuel_cost || 0;
+      b.scores.push(ride.score || 0);
+      if ((ride.score || 0) > b.best_score) b.best_score = ride.score;
+    }
+
+    const bikeStats = Object.values(bikeMap).map(b => ({
+      bike_id: b.bike_id, bike_name: b.bike_name, rides: b.rides,
+      total_distance_km: Math.round(b.total_distance_km * 100) / 100,
+      total_time_minutes: Math.round(b.total_time_minutes * 100) / 100,
+      total_fuel_cost: Math.round(b.total_fuel_cost * 100) / 100,
+      avg_score: b.scores.length > 0 ? Math.round((b.scores.reduce((a, c) => a + c, 0) / b.scores.length) * 100) / 100 : 0,
+      best_score: b.best_score,
+      distance_share: totalDistance > 0 ? Math.round((b.total_distance_km / totalDistance) * 100) : 0
+    })).sort((a, b) => b.rides - a.rides);
+
+    const mostRiddenBike = bikeStats.length > 0 ? bikeStats[0] : null;
+    const bestScoringBike = bikeStats.filter(b => b.rides >= 2).sort((a, b) => b.avg_score - a.avg_score)[0] || null;
+
+    // Delete old wrapped and create new one
+    await MonthlyWrapped.deleteOne({ user_id: userId, month: targetMonth, year: targetYear });
+
+    const wrapped = new MonthlyWrapped({
+      user_id: userId, month: targetMonth, year: targetYear,
+      total_distance_km: Math.round(totalDistance * 100) / 100,
+      total_riding_time_minutes: Math.round(totalTime * 100) / 100,
+      total_fuel_cost: Math.round(totalCost * 100) / 100,
+      total_rides: rides.length,
+      average_ride_score: Math.round(avgScore * 100) / 100,
+      best_ride_id: bestRide._id, best_ride_score: bestRide.score,
+      longest_ride_id: longestRide._id, longest_ride_distance: longestRide.metrics?.distance_km,
+      most_used_route: 'Top Route',
+      smoothness_percentile: smoothnessPercentile,
+      bike_stats: bikeStats,
+      most_ridden_bike: mostRiddenBike?.bike_name || null,
+      best_scoring_bike: bestScoringBike?.bike_name || null
+    });
+
+    await wrapped.save();
+    return wrapped.toObject();
+  } catch (err) {
+    console.error('Regenerate wrapped error:', err);
+    return null;
+  }
+}
+
 module.exports = {
   getRouteCommunityStats,
   getUserRoutes,
@@ -399,5 +394,6 @@ module.exports = {
   getSmartInsights,
   getMonthlyWrapped,
   getPosts,
-  createPost
+  createPost,
+  regenerateMonthlyWrapped
 };
