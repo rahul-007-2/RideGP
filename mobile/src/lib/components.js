@@ -8,7 +8,7 @@ import {
   Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors, Typography, Shadows, Spacing, Radii } from './theme';
+import { Colors, Typography, Shadows, Spacing, Radii, useColors } from './theme';
 
 // ─── Premium Button ───────────────────────────────────────────────
 export function PrimaryButton({ title, onPress, disabled, loading, style, icon, small }) {
@@ -74,8 +74,9 @@ export function TextButton({ title, onPress, style, color }) {
 
 // ─── Card ─────────────────────────────────────────────────────────
 export function Card({ children, style, noPadding }) {
+  const C = useColors();
   return (
-    <View style={[cardStyles.card, noPadding && { padding: 0 }, style]}>
+    <View style={[{ backgroundColor: C.card, borderRadius: Radii.lg, padding: Spacing.lg, marginBottom: Spacing.lg, ...Shadows.medium }, noPadding && { padding: 0 }, style]}>
       {children}
     </View>
   );
@@ -106,14 +107,15 @@ export function ScreenHeader({ title, subtitle, rightAction, rightIcon, onRightP
 // ─── Back Header (with back button) ───────────────────────────────
 export function BackHeader({ title, navigation, rightAction, onRightPress }) {
   const insets = useSafeAreaInsets();
+  const C = useColors();
   return (
-    <View style={[headerStyles.container, { paddingTop: insets.top + Spacing.md }]}
+    <View style={[headerStyles.container, { paddingTop: insets.top + Spacing.md, backgroundColor: C.surface }]}
     >
-      <TouchableOpacity onPress={() => navigation.goBack()} style={headerStyles.backBtn}>
-        <Text style={headerStyles.backArrow}>‹</Text>
+      <TouchableOpacity onPress={() => navigation.goBack()} style={[headerStyles.backBtn, { backgroundColor: C.borderLight }]}>
+        <Text style={[headerStyles.backArrow, { color: C.text }]}>‹</Text>
       </TouchableOpacity>
       <View style={headerStyles.titleCenter}>
-        <Text style={headerStyles.title}>{title}</Text>
+        <Text style={[headerStyles.title, { color: C.text }]}>{title}</Text>
       </View>
       {rightAction ? (
         <TouchableOpacity onPress={onRightPress} style={headerStyles.actionBtn}>

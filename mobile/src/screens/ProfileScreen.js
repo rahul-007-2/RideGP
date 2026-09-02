@@ -12,11 +12,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';
+import { Colors, Typography, Shadows, Radii, Spacing, useColors } from '../lib/theme';
 import { PrimaryButton, DangerButton, SecondaryButton, Card, StatItem } from '../lib/components';
 import { API_URL } from '@env';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../lib/AuthContext';
+import { useTheme } from '../lib/ThemeContext';
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -47,6 +48,7 @@ export default function ProfileScreen({ navigation }) {
   const [fuelPrice, setFuelPrice] = useState('90');
 
   const { signOut } = useAuth();
+  const C = useColors();
   const serverUrl = (API_URL && API_URL.length > 0) ? API_URL : 'http://localhost:3000';
 
   const loadProfile = async () => {
@@ -226,13 +228,13 @@ export default function ProfileScreen({ navigation }) {
   }
 
   if (loading) {
-    return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.primary} /></View>;
+    return <View style={{ flex: 1, backgroundColor: C.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={C.primary} /></View>;
   }
 
   return (
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + Spacing.lg }]}
+      style={{ flex: 1, backgroundColor: C.background }}
+      contentContainerStyle={{ paddingHorizontal: Spacing.lg, paddingTop: insets.top + Spacing.lg }}
       showsVerticalScrollIndicator={false}
     >
       {/* Avatar Hero */}
@@ -323,6 +325,9 @@ export default function ProfileScreen({ navigation }) {
         </View>
       </Card>
 
+      {/* Dark Mode Toggle */}
+      <DarkModeToggle />
+
       <DangerButton title="🚪 Sign Out" onPress={handleSignOut} style={{ marginBottom: 100 }} />
 
       {/* ─── Add/Edit Bike Modal ────────────────────────────────── */}
@@ -357,6 +362,42 @@ export default function ProfileScreen({ navigation }) {
         </View>
       </Modal>
     </ScrollView>
+  );
+}
+
+function DarkModeToggle() {
+  const { mode, setTheme } = useTheme();
+  const C = useColors();
+  const options = [
+    { key: 'system', icon: '📱', label: 'System' },
+    { key: 'light', icon: '☀️', label: 'Light' },
+    { key: 'dark', icon: '🌙', label: 'Dark' },
+  ];
+  return (
+    <Card style={{ marginBottom: 12, backgroundColor: C.surface }}>
+      <Text style={{ ...Typography.h3, fontSize: 16, color: C.text, marginBottom: 12 }}>Appearance</Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {options.map(opt => {
+          const isActive = mode === opt.key;
+          return (
+            <TouchableOpacity
+              key={opt.key}
+              onPress={() => setTheme(opt.key)}
+              activeOpacity={0.7}
+              style={{
+                flex: 1, alignItems: 'center', paddingVertical: 12,
+                borderRadius: 12, borderWidth: 1.5,
+                backgroundColor: isActive ? C.primarySurface : C.borderLight,
+                borderColor: isActive ? C.primary : 'transparent',
+              }}
+            >
+              <Text style={{ fontSize: 22, marginBottom: 4 }}>{opt.icon}</Text>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: isActive ? C.primary : C.textSecondary }}>{opt.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </Card>
   );
 }
 

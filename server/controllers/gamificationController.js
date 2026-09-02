@@ -227,6 +227,10 @@ async function updateStreak(req, res) {
       streak.streak_start_date = today;
     }
 
+    // Always ensure best >= current
+    if (streak.current_streak_count > streak.best_streak_count) {
+      streak.best_streak_count = streak.current_streak_count;
+    }
     streak.last_ride_date = lastRide;
     streak.updated_at = new Date();
     await streak.save();

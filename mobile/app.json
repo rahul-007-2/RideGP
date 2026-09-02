@@ -13,6 +13,18 @@
         "projectId": "3927a9d5-b834-4424-88fd-78c44d2ed6ef"
       }
     },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow RideGP to track your rides in the background for continuous location recording.",
+          "locationAlwaysPermission": "Allow RideGP to track your rides in the background.",
+          "locationWhenInUsePermission": "Allow RideGP to access your location for ride tracking.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ],
     "android": {
       "config": {
         "googleMaps": {
@@ -22,13 +34,22 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION"
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "WAKE_LOCK"
       ],
       "package": "com.rahul2007.ridegp"
     },
     "ios": {
       "config": {
         "googleMapsApiKey": ""
+      },
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "location",
+          "background-processing"
+        ]
       }
     }
   }

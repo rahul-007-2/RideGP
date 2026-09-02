@@ -13,7 +13,7 @@ import MapView, { Polyline, Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { computeRideMetrics, estimateFuelCost, computeRideScore } from '../lib/rideUtils';
 import { FUEL_EFFICIENCY_KM_PER_L, FUEL_PRICE_PER_L, API_URL } from '@env';
-import { startBackgroundTracking, stopBackgroundTracking, getInProgressRide } from '../lib/background';
+import { startBackgroundTracking, stopBackgroundTracking, getInProgressRide, requestTrackingPermissions } from '../lib/background';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';
 
@@ -52,21 +52,14 @@ export default function RideScreen({ navigation }) {
         }
       } catch (e) { console.warn('Load bikes error', e.message); }
 
-      // Request foreground location permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission required', 'Location permission is required to track rides');
+      // Request all location permissions (foreground + background)
+      const perm = await requestTrackingPermissions();
+      if (!perm.granted) {
+        const msg = perm.reason === 'background'
+          ? 'Background location permission is needed to record your ride even when the app is minimized. Please enable it in Settings.'
+          : 'Location permission is required to track rides.';
+        Alert.alert('Permission required', msg);
         return;
-      }
-
-      // Also request background permission for iOS
-      try {
-        const bgStatus = await Location.requestBackgroundPermissionsAsync();
-        if (bgStatus.status !== 'granted') {
-          console.warn('Background location permission not granted');
-        }
-      } catch (e) {
-        console.warn('Background permission request failed:', e.message);
       }
 
       // Check for in-progress ride
@@ -210,14 +203,27 @@ export default function RideScreen({ navigation }) {
         return;
       }
 
-      const metrics = computeRideMetrics(allPoints);
+      const rawMetrics = computeRideMetrics(allPoints);
       const user = JSON.parse(await AsyncStorage.getItem('user'));
+
+      // Map mobile metrics to server field names
+      const metrics = {
+        distance_km: rawMetrics.distance_km,
+        duration_minutes: Math.round((rawMetrics.duration_s / 60) * 100) / 100,
+        average_speed_kmh: rawMetrics.avg_speed_kmh,
+        top_speed_kmh: rawMetrics.top_speed_kmh,
+        traffic_stops: rawMetrics.stops,
+        idle_time_minutes: Math.round((rawMetrics.idle_time_s / 60) * 100) / 100,
+        duration_s: rawMetrics.duration_s,
+      };
 
       // Use selected bike's fuel data if available
       const bikeFuelEff = selectedBike?.fuel_efficiency_kmpl || user?.fuel_efficiency_kmpl || 40;
       const bikeFuelPrice = selectedBike?.fuel_price_per_liter || user?.fuel_price_per_liter || 90;
       const fuelCost = estimateFuelCost(metrics.distance_km, bikeFuelEff, bikeFuelPrice);
-      const score = computeRideScore(metrics);
+      const scoreObj = computeRideScore(rawMetrics);
+      const score = typeof scoreObj === 'object' ? scoreObj.total_score : scoreObj;
+      const scoreBreakdown = typeof scoreObj === 'object' ? scoreObj.breakdown : null;
 
       const bikeName = selectedBike ? (selectedBike.nickname || `${selectedBike.make} ${selectedBike.model}`.trim() || '') : '';
 
@@ -232,6 +238,7 @@ export default function RideScreen({ navigation }) {
           geo: allPoints,
           fuel_cost: fuelCost,
           score,
+          score_breakdown: scoreBreakdown,
           route_name: 'Tracked Route',
           ride_type: 'commute',
           bike_id: selectedBike?.bike_id || null,

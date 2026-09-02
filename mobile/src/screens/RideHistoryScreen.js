@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   RefreshControl,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -20,6 +21,8 @@ export default function RideHistoryScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedRides, setSelectedRides] = useState([]);
+  const [comparison, setComparison] = useState(null);
+  const [showComparison, setShowComparison] = useState(false);
 
   const serverUrl = (API_URL && API_URL.length > 0) ? API_URL : 'http://localhost:3000';
 
@@ -56,7 +59,7 @@ export default function RideHistoryScreen({ navigation }) {
 
   const handleCompare = async () => {
     if (selectedRides.length < 2) {
-      alert('Select at least 2 rides to compare');
+      Alert.alert('Select 2+ rides', 'Long press on rides to select them for comparison');
       return;
     }
 
@@ -72,11 +75,17 @@ export default function RideHistoryScreen({ navigation }) {
       });
 
       if (res.ok) {
-        const comparison = await res.json();
-        navigation.navigate('RideComparison', { comparison });
+        const data = await res.json();
+        setComparison(data);
+        setShowComparison(true);
+        setSelectedRides([]);
+      } else {
+        const err = await res.json();
+        Alert.alert('Error', err.error || 'Failed to compare rides');
       }
     } catch (err) {
       console.error('Compare error:', err);
+      Alert.alert('Error', 'Network error. Make sure the server is running.');
     }
   };
 
@@ -92,7 +101,12 @@ export default function RideHistoryScreen({ navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + Spacing.lg }]}>
-        <Text style={styles.title}>Ride History</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Ride History</Text>
+          {rides.length > 0 && (
+            <Text style={styles.hintText}>Tap a ride for details · Long press to compare</Text>
+          )}
+        </View>
         {selectedRides.length > 1 && (
           <PrimaryButton
             title={`Compare (${selectedRides.length})`}
@@ -100,9 +114,6 @@ export default function RideHistoryScreen({ navigation }) {
             small
             style={{ paddingHorizontal: 14 }}
           />
-        )}
-        {rides.length > 0 && selectedRides.length === 0 && (
-          <Text style={styles.hintText}>Tap a ride for details · Long press to compare</Text>
         )}
       </View>
 
@@ -122,23 +133,23 @@ export default function RideHistoryScreen({ navigation }) {
               <TouchableOpacity
                 key={ride._id}
                 style={[styles.rideCard, isSelected && styles.rideCardSelected]}
-                onPress={() => navigation.navigate('RideDetail', { rideId: ride._id, ride })}
+                onPress={() => {
+                  if (selectedRides.length > 0) {
+                    toggleRideSelection(ride._id);
+                  } else {
+                    navigation.navigate('RideDetail', { rideId: ride._id, ride });
+                  }
+                }}
                 onLongPress={() => toggleRideSelection(ride._id)}
                 activeOpacity={0.7}
               >
                 <View style={styles.rideHeader}>
                   <View style={styles.rideDateBlock}>
                     <Text style={styles.rideDate}>
-                      {new Date(ride.start_time).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
+                      {new Date(ride.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </Text>
                     <Text style={styles.rideTime}>
-                      {new Date(ride.start_time).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      {new Date(ride.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                     </Text>
                   </View>
                   <View style={[styles.scoreBadge, isSelected && styles.scoreBadgeSelected]}>
@@ -191,123 +202,119 @@ export default function RideHistoryScreen({ navigation }) {
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Comparison Modal */}
+      <Modal visible={showComparison} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalHeader, { paddingTop: insets.top + Spacing.md }]}>
+            <TouchableOpacity onPress={() => { setShowComparison(false); setComparison(null); }}>
+              <Text style={styles.modalCancel}>Done</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Ride Comparison</Text>
+            <View style={{ width: 50 }} />
+          </View>
+
+          {comparison && (
+            <ScrollView style={styles.comparisonContent} showsVerticalScrollIndicator={false}>
+              {/* Averages */}
+              <Card>
+                <Text style={styles.compSectionTitle}>📊 Averages</Text>
+                <CompRow label="Distance" value={`${comparison.averages?.distance_km?.toFixed(1) || 0} km`} />
+                <CompRow label="Duration" value={`${Math.round(comparison.averages?.duration_minutes || 0)} min`} />
+                <CompRow label="Avg Speed" value={`${comparison.averages?.average_speed_kmh?.toFixed(0) || 0} km/h`} />
+                <CompRow label="Score" value={`${Math.round(comparison.averages?.score || 0)}`} />
+                <CompRow label="Stops" value={`${comparison.averages?.traffic_stops?.toFixed(0) || 0}`} />
+                <CompRow label="Fuel Cost" value={`₹${(comparison.averages?.fuel_cost || 0).toFixed(0)}`} />
+              </Card>
+
+              {/* Individual rides */}
+              {comparison.rides?.map((r, idx) => (
+                <Card key={idx}>
+                  <Text style={styles.compSectionTitle}>🏍️ Ride {idx + 1} — {new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
+                  <CompRow label="Distance" value={`${r.distance_km?.toFixed(1) || 0} km`} />
+                  <CompRow label="Duration" value={`${Math.round(r.duration_minutes || 0)} min`} />
+                  <CompRow label="Avg Speed" value={`${r.average_speed_kmh?.toFixed(0) || 0} km/h`} />
+                  <CompRow label="Top Speed" value={`${r.top_speed_kmh?.toFixed(0) || 0} km/h`} />
+                  <CompRow label="Score" value={`${Math.round(r.score || 0)}`} />
+                  <CompRow label="Stops" value={`${r.traffic_stops || 0}`} />
+                  <CompRow label="Fuel" value={`₹${(r.fuel_cost || 0).toFixed(0)}`} />
+                </Card>
+              ))}
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
 
+function CompRow({ label, value }) {
+  return (
+    <View style={compStyles.row}>
+      <Text style={compStyles.label}>{label}</Text>
+      <Text style={compStyles.value}>{value}</Text>
+    </View>
+  );
+}
+
+const compStyles = StyleSheet.create({
+  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  label: { ...Typography.body, fontSize: 14, fontWeight: '500' },
+  value: { ...Typography.body, fontWeight: '700', color: Colors.primary, fontSize: 14 },
+});
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
+  loadingContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.md,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md,
   },
-  title: {
-    ...Typography.h1,
-  },
-  listContainer: {
-    paddingHorizontal: Spacing.lg,
-  },
-  hintText: { ...Typography.small, textAlign: 'center', marginBottom: 8, color: Colors.textMuted },
+  title: { ...Typography.h1 },
+  hintText: { ...Typography.small, textAlign: 'left', marginTop: 4, color: Colors.textMuted },
+  listContainer: { paddingHorizontal: Spacing.lg },
   rideCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radii.lg,
-    padding: Spacing.lg,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    ...Shadows.medium,
+    backgroundColor: Colors.surface, borderRadius: Radii.lg, padding: Spacing.lg,
+    marginBottom: 12, borderWidth: 2, borderColor: 'transparent', ...Shadows.medium,
   },
-  rideCardSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '05',
-  },
-  rideHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
+  rideCardSelected: { borderColor: Colors.primary, backgroundColor: Colors.primary + '05' },
+  rideHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   rideDateBlock: {},
-  rideDate: {
-    ...Typography.h3,
-    fontSize: 16,
-  },
-  rideTime: {
-    ...Typography.caption,
-    marginTop: 2,
-  },
-  scoreBadge: {
-    backgroundColor: Colors.primary + '12',
-    borderRadius: Radii.md,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  scoreBadgeSelected: {
-    backgroundColor: Colors.primary,
-  },
-  scoreText: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: Colors.primary,
-  },
-  scoreUnit: {
-    fontSize: 10,
-    color: Colors.primary,
-    fontWeight: '600',
-    marginTop: -2,
-  },
+  rideDate: { ...Typography.h3, fontSize: 16 },
+  rideTime: { ...Typography.caption, marginTop: 2 },
+  scoreBadge: { backgroundColor: Colors.primary + '12', borderRadius: Radii.md, paddingHorizontal: 14, paddingVertical: 8, alignItems: 'center' },
+  scoreBadgeSelected: { backgroundColor: Colors.primary },
+  scoreText: { fontSize: 20, fontWeight: '800', color: Colors.primary },
+  scoreUnit: { fontSize: 10, color: Colors.primary, fontWeight: '600', marginTop: -2 },
   rideStatsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.borderLight,
-    borderRadius: Radii.sm,
-    padding: 12,
-    marginBottom: 8,
+    flexDirection: 'row', justifyContent: 'space-between',
+    backgroundColor: Colors.borderLight, borderRadius: Radii.sm, padding: 12, marginBottom: 8,
   },
-  rideStat: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  rideStatIcon: {
-    fontSize: 12,
-    marginRight: 4,
-  },
-  rideStatValue: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.text,
-  },
+  rideStat: { flexDirection: 'row', alignItems: 'center' },
+  rideStatIcon: { fontSize: 12, marginRight: 4 },
+  rideStatValue: { fontSize: 12, fontWeight: '600', color: Colors.text },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   bikeTag: { backgroundColor: Colors.primary + '12', borderRadius: Radii.full, paddingHorizontal: 10, paddingVertical: 3 },
   bikeTagText: { fontSize: 11, fontWeight: '600', color: Colors.primary },
   routeTag: { backgroundColor: Colors.borderLight, borderRadius: Radii.full, paddingHorizontal: 10, paddingVertical: 3 },
   routeTagText: { fontSize: 11, fontWeight: '500', color: Colors.textSecondary },
   selectedIndicator: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    position: 'absolute', top: 12, right: 12, width: 22, height: 22,
+    borderRadius: 11, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
   },
   checkText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   scoreTextSelected: { color: '#fff' },
   scoreUnitSelected: { color: 'rgba(255,255,255,0.8)' },
   chevron: { position: 'absolute', top: 14, right: 12, fontSize: 22, color: Colors.textMuted, fontWeight: '300' },
+  // Modal
+  modalContainer: { flex: 1, backgroundColor: Colors.background },
+  modalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border,
+  },
+  modalCancel: { color: Colors.textSecondary, fontSize: 16 },
+  modalTitle: { ...Typography.h3 },
+  comparisonContent: { paddingHorizontal: Spacing.lg, paddingTop: 12 },
+  compSectionTitle: { ...Typography.h3, fontSize: 14, marginBottom: 10 },
 });

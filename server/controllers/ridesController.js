@@ -10,7 +10,7 @@ const { regenerateMonthlyWrapped } = require('../controllers/communityController
 async function createRide(req, res) {
   try {
     const userId = req.user.userId;
-    const { metrics, geo, fuel_cost, score, route_name, origin, destination, ride_type, bike_id, bike_name } = req.body;
+    const { metrics, geo, fuel_cost, score, score_breakdown, route_name, origin, destination, ride_type, bike_id, bike_name } = req.body;
 
     if (!geo || geo.length < 2) {
       return res.status(400).json({ error: 'Ride must have at least 2 GPS points' });
@@ -56,6 +56,7 @@ async function createRide(req, res) {
       geo,
       fuel_cost: calculatedFuelCost,
       score: calculatedScore,
+      score_breakdown: score_breakdown || undefined,
       route_name: route_name || 'Unknown Route',
       origin,
       destination,

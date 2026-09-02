@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';
+import { Colors, Typography, Shadows, Radii, Spacing, useColors } from '../lib/theme';
 import { Card, EmptyState } from '../lib/components';
 import { API_URL } from '@env';
 import { useAuth } from '../lib/AuthContext';
@@ -20,6 +20,7 @@ export default function HomeScreen({ navigation }) {
   const route = useRoute();
   const insets = useSafeAreaInsets();
   const { user: authUser } = useAuth();
+  const C = useColors();
   const [user, setUser] = useState(null);
   const [streak, setStreak] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -115,8 +116,8 @@ export default function HomeScreen({ navigation }) {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+      <View style={{ flex: 1, backgroundColor: C.background, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={C.primary} />
       </View>
     );
   }
@@ -141,9 +142,9 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + Spacing.lg }]}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+      style={{ flex: 1, backgroundColor: C.background }}
+      contentContainerStyle={{ paddingHorizontal: Spacing.lg, paddingTop: insets.top + Spacing.lg }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} />}
       showsVerticalScrollIndicator={false}
     >
       {/* Hero Greeting */}

@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityIndicator, View, Text, StyleSheet } from 'react-native';
 
 import { AuthProvider, useAuth } from './src/lib/AuthContext';
+import { ThemeProvider, useTheme } from './src/lib/ThemeContext';
 
 // Import screens
 import AuthScreen from './src/screens/AuthScreen';
@@ -24,7 +25,7 @@ import BroadcastScreen from './src/screens/BroadcastScreen';
 import GroupChatScreen from './src/screens/GroupChatScreen';
 
 import { registerForPushNotificationsAsync } from './src/lib/notifications';
-import { Colors, Shadows } from './src/lib/theme';
+import { Colors, Shadows, useColors } from './src/lib/theme';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -120,12 +121,14 @@ function AppInner() {
     signIn(userData);
   };
 
+  const C = useColors();
+
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <View style={styles.loadingCard}>
-          <Text style={styles.loadingEmoji}>🏍️</Text>
-          <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 16 }} />
+      <View style={{ flex: 1, backgroundColor: C.background, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={{ fontSize: 56 }}>🏍️</Text>
+          <ActivityIndicator size="large" color={C.primary} style={{ marginTop: 16 }} />
         </View>
       </View>
     );
@@ -136,8 +139,7 @@ function AppInner() {
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
-          animation: 'slide_from_right',
-          contentStyle: { backgroundColor: Colors.background },
+          animation: 'slide_from_right',            contentStyle: { backgroundColor: C.background },
         }}
       >
         {user ? (
@@ -168,9 +170,11 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <AppInner />
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppInner />
+          </AuthProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
