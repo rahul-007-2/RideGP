@@ -26,7 +26,7 @@ export default function RideDetailScreen({ navigation, route }) {
   const [ride, setRide] = useState(passedRide || null);
   const [loading, setLoading] = useState(!passedRide);
   const [routeName, setRouteName] = useState(passedRide?.route_name || '');
-  const [isFavourite, setIsFavourite] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [mapRegion, setMapRegion] = useState(null);
   const [showSharePicker, setShowSharePicker] = useState(false);
@@ -92,18 +92,39 @@ export default function RideDetailScreen({ navigation, route }) {
     }
   };
 
-  const toggleFavourite = async () => {
-    const newState = !isFavourite;
-    setIsFavourite(newState);
+  const saveRoute = async () => {
+    if (isSaved) {
+      Alert.alert('Already saved', 'This route is already in your saved routes.');
+      return;
+    }
+    if (!ride?.geo || ride.geo.length < 2) {
+      Alert.alert('Cannot save', 'No route data to save.');
+      return;
+    }
     try {
       const token = await AsyncStorage.getItem('authToken');
-      await fetch(`${serverUrl}/api/rides/${ride._id}`, {
-        method: 'PUT',
+      const m = ride.metrics || {};
+      const res = await fetch(`${serverUrl}/api/rides/saved-routes`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ is_favourite: newState }),
+        body: JSON.stringify({
+          name: routeName || 'Saved Route',
+          ride_id: ride._id,
+          geo: ride.geo.map(p => ({ latitude: p.latitude, longitude: p.longitude })),
+          origin: ride.geo[0] ? { latitude: ride.geo[0].latitude, longitude: ride.geo[0].longitude } : null,
+          destination: ride.geo[ride.geo.length - 1] ? { latitude: ride.geo[ride.geo.length - 1].latitude, longitude: ride.geo[ride.geo.length - 1].longitude } : null,
+          distance_km: m.distance_km || 0,
+        }),
       });
+      if (res.ok) {
+        setIsSaved(true);
+        Alert.alert('Route Saved! ✅', `${routeName || 'Saved Route'} has been saved. View it in your Profile.`);
+      } else {
+        const data = await res.json();
+        Alert.alert('Error', data.error || 'Failed to save route');
+      }
     } catch (err) {
-      setIsFavourite(!newState);
+      Alert.alert('Error', err.message);
     }
   };
 
@@ -210,7 +231,7 @@ export default function RideDetailScreen({ navigation, route }) {
     <View style={styles.container}>
       {/* Map — fills top portion, interactive */}
       {geo.length > 0 && mapRegion && (
-        <View style={[styles.mapContainer, { height: 220, paddingTop: insets.top }]}>
+        <View style={[styles.mapContainer, { height: 320, paddingTop: insets.top }]}>
           <MapView
             style={styles.map}
             region={mapRegion}
@@ -366,12 +387,12 @@ export default function RideDetailScreen({ navigation, route }) {
         {/* Actions */}
         <View style={styles.actionsRow}>
           <TouchableOpacity
-            style={[styles.actionBtn, styles.favBtn, isFavourite && styles.favBtnActive]}
-            onPress={toggleFavourite}
+            style={[styles.actionBtn, styles.favBtn, isSaved && styles.favBtnActive]}
+            onPress={saveRoute}
             activeOpacity={0.7}
           >
-            <Text style={styles.actionBtnIcon}>{isFavourite ? '⭐' : '☆'}</Text>
-            <Text style={[styles.actionBtnLabel, isFavourite && styles.favBtnLabelActive]}>{isFavourite ? 'Favourited' : 'Favourite'}</Text>
+            <Text style={styles.actionBtnIcon}>{isSaved ? '📍' : '📌'}</Text>
+            <Text style={[styles.actionBtnLabel, isSaved && styles.favBtnLabelActive]}>{isSaved ? 'Saved' : 'Save Route'}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={[styles.actionBtn, styles.shareBtn]} onPress={openSharePicker} activeOpacity={0.7}>

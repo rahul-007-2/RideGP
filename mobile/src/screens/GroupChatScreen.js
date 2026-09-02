@@ -12,12 +12,17 @@ import {
   Alert,
   Modal,
   ScrollView,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';
 import { API_URL } from '@env';
+import * as ImagePicker from 'expo-image-picker';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function GroupChatScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -32,6 +37,8 @@ export default function GroupChatScreen({ navigation, route }) {
   const [members, setMembers] = useState([]);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [addingMember, setAddingMember] = useState(false);
+  const [pendingMedia, setPendingMedia] = useState(null); // { uri, base64, type }
+  const [sendingMedia, setSendingMedia] = useState(false);
   const flatListRef = useRef(null);
   const serverUrl = (API_URL && API_URL.length > 0) ? API_URL : 'http://localhost:3000';
 
@@ -75,7 +82,6 @@ export default function GroupChatScreen({ navigation, route }) {
     loadMembers();
   }, []));
 
-  // Poll for new messages every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       loadMessages();
@@ -84,7 +90,83 @@ export default function GroupChatScreen({ navigation, route }) {
     return () => clearInterval(interval);
   }, []);
 
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow access to photos to share images.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images', 'videos'],
+      quality: 0.7,
+      base64: true,
+      videoMaxDuration: 30,
+      allowsEditing: true,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      setPendingMedia({
+        uri: asset.uri,
+        base64: asset.base64,
+        type: asset.type === 'video' ? 'video' : 'image',
+      });
+    }
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow camera access to take photos.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.7,
+      base64: true,
+      allowsEditing: true,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      setPendingMedia({
+        uri: asset.uri,
+        base64: asset.base64,
+        type: 'image',
+      });
+    }
+  };
+
+  const sendMediaMessage = async () => {
+    if (!pendingMedia || sendingMedia) return;
+    setSendingMedia(true);
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const res = await fetch(`${serverUrl}/api/chat/groups/${groupId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          text: text.trim() || '',
+          media_url: `data:${pendingMedia.type === 'video' ? 'video' : 'image'}/jpeg;base64,${pendingMedia.base64}`,
+          media_type: pendingMedia.type,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(prev => [...prev, data.message]);
+        setText('');
+        setPendingMedia(null);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+    } catch (err) {
+      console.error('Send media error:', err);
+      Alert.alert('Error', 'Failed to send media');
+    } finally {
+      setSendingMedia(false);
+    }
+  };
+
   const sendMessage = async () => {
+    if (pendingMedia) {
+      return sendMediaMessage();
+    }
     if (!text.trim() || sending) return;
     setSending(true);
     try {
@@ -109,36 +191,36 @@ export default function GroupChatScreen({ navigation, route }) {
 
   const addMember = async () => {
     if (!newMemberEmail.trim() || addingMember) return;
+    const email = newMemberEmail.trim().toLowerCase();
     setAddingMember(true);
     try {
       const token = await AsyncStorage.getItem('authToken');
       const res = await fetch(`${serverUrl}/api/chat/groups/${groupId}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ member_emails: [newMemberEmail.trim().toLowerCase()] }),
+        body: JSON.stringify({ member_emails: [email] }),
       });
+      const data = await res.json();
+
       if (res.ok) {
-        const data = await res.json();
         setMembers(data.group?.members || []);
         setNewMemberEmail('');
         setShowAddMember(false);
-        Alert.alert('Added!', `${newMemberEmail} has been added to the group`);
-        // Send a system-like message
-        const token2 = await AsyncStorage.getItem('authToken');
+        Alert.alert('✅ Added', data.message || `${email} added`);
+
         const userData = await AsyncStorage.getItem('user');
         const userName = userData ? JSON.parse(userData).name : 'Someone';
         await fetch(`${serverUrl}/api/chat/groups/${groupId}/messages`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token2}` },
-          body: JSON.stringify({ text: `👋 ${userName} added ${newMemberEmail} to the group` }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ text: `👋 ${userName} added ${email} to the group` }),
         });
         loadMessages();
       } else {
-        const data = await res.json();
-        Alert.alert('Error', data.error || 'Failed to add member. Make sure the email is registered.');
+        Alert.alert('Could not add', data.error || 'Unknown error');
       }
     } catch (err) {
-      Alert.alert('Error', err.message);
+      Alert.alert('Error', err.message || 'Network error.');
     } finally {
       setAddingMember(false);
     }
@@ -176,7 +258,6 @@ export default function GroupChatScreen({ navigation, route }) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  // Group messages by date
   const groupedMessages = [];
   let lastDate = '';
   for (const msg of messages) {
@@ -201,7 +282,16 @@ export default function GroupChatScreen({ navigation, route }) {
     return (
       <View style={[styles.messageBubble, item.isMe ? styles.myMessage : styles.otherMessage]}>
         {!item.isMe && <Text style={styles.senderName}>{item.sender_name}</Text>}
-        <Text style={[styles.messageText, item.isMe && styles.myMessageText]}>{item.text}</Text>
+        {item.media_url ? (
+          <Image
+            source={{ uri: item.media_url }}
+            style={styles.messageImage}
+            resizeMode="cover"
+          />
+        ) : null}
+        {item.text ? (
+          <Text style={[styles.messageText, item.isMe && styles.myMessageText]}>{item.text}</Text>
+        ) : null}
         <Text style={[styles.messageTime, item.isMe && styles.myMessageTime]}>{formatTime(item.created_at)}</Text>
       </View>
     );
@@ -235,6 +325,21 @@ export default function GroupChatScreen({ navigation, route }) {
         </TouchableOpacity>
       </View>
 
+      {/* Pending media preview */}
+      {pendingMedia && (
+        <View style={styles.pendingMediaBar}>
+          <Image source={{ uri: pendingMedia.uri }} style={styles.pendingMediaThumb} />
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={styles.pendingMediaLabel}>
+              {pendingMedia.type === 'video' ? '🎬 Video' : '🖼️ Photo'} ready to send
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => setPendingMedia(null)} style={styles.pendingMediaRemove}>
+            <Text style={{ fontSize: 18, color: Colors.error }}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Messages */}
       <FlatList
         ref={flatListRef}
@@ -254,6 +359,12 @@ export default function GroupChatScreen({ navigation, route }) {
 
       {/* Input */}
       <View style={[styles.inputBar, { paddingBottom: insets.bottom + 8 }]}>
+        <TouchableOpacity style={styles.attachBtn} onPress={pickImage} activeOpacity={0.7}>
+          <Text style={styles.attachBtnText}>📎</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.attachBtn} onPress={takePhoto} activeOpacity={0.7}>
+          <Text style={styles.attachBtnText}>📷</Text>
+        </TouchableOpacity>
         <TextInput
           style={styles.textInput}
           value={text}
@@ -264,12 +375,12 @@ export default function GroupChatScreen({ navigation, route }) {
           maxLength={2000}
         />
         <TouchableOpacity
-          style={[styles.sendBtn, (!text.trim() || sending) && styles.sendBtnDisabled]}
+          style={[styles.sendBtn, ((!text.trim() && !pendingMedia) || sending || sendingMedia) && styles.sendBtnDisabled]}
           onPress={sendMessage}
-          disabled={!text.trim() || sending}
+          disabled={(!text.trim() && !pendingMedia) || sending || sendingMedia}
           activeOpacity={0.7}
         >
-          {sending ? (
+          {sending || sendingMedia ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <Text style={styles.sendBtnText}>↑</Text>
@@ -378,11 +489,12 @@ const styles = StyleSheet.create({
   dateText: { ...Typography.small, backgroundColor: Colors.borderLight, paddingHorizontal: 12, paddingVertical: 4, borderRadius: Radii.full },
   messageBubble: {
     maxWidth: '78%', borderRadius: Radii.lg, paddingHorizontal: 14, paddingVertical: 10,
-    marginBottom: 6,
+    marginBottom: 6, overflow: 'hidden',
   },
   myMessage: { alignSelf: 'flex-end', backgroundColor: Colors.primary },
   otherMessage: { alignSelf: 'flex-start', backgroundColor: Colors.surface, ...Shadows.small },
   senderName: { ...Typography.small, fontSize: 11, color: Colors.primary, fontWeight: '600', marginBottom: 2 },
+  messageImage: { width: SCREEN_WIDTH * 0.55, height: SCREEN_WIDTH * 0.4, borderRadius: Radii.sm, marginBottom: 4 },
   messageText: { ...Typography.body, fontSize: 15, color: Colors.text },
   myMessageText: { color: '#fff' },
   messageTime: { fontSize: 10, color: Colors.textMuted, marginTop: 4, alignSelf: 'flex-end' },
@@ -391,10 +503,25 @@ const styles = StyleSheet.create({
   emptyChatIcon: { fontSize: 48, marginBottom: 12 },
   emptyChatText: { ...Typography.h3, marginBottom: 4 },
   emptyChatSubtext: { ...Typography.caption },
+  // Pending media
+  pendingMediaBar: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.border,
+    paddingHorizontal: Spacing.lg, paddingVertical: 8,
+  },
+  pendingMediaThumb: { width: 48, height: 48, borderRadius: 8 },
+  pendingMediaLabel: { ...Typography.small, fontWeight: '600', color: Colors.primary },
+  pendingMediaRemove: { padding: 8 },
+  // Input
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: Spacing.lg,
     paddingTop: 8, backgroundColor: Colors.surface, borderTopWidth: 1, borderTopColor: Colors.border,
   },
+  attachBtn: {
+    width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.borderLight,
+    alignItems: 'center', justifyContent: 'center', marginRight: 8, marginBottom: 2,
+  },
+  attachBtnText: { fontSize: 16 },
   textInput: {
     flex: 1, backgroundColor: Colors.borderLight, borderRadius: Radii.xl,
     paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, color: Colors.text,

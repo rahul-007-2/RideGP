@@ -102,9 +102,10 @@ export async function startBackgroundTracking() {
         notificationTitle: '🏍️ Freebuff — Ride Active',
         notificationBody: 'Recording your ride. Tap to return to the app.',
         notificationColor: '#0A84FF',
-        // Android 14+ requires a specific service type
+        // Android 14+ requires a specific service type (2 = GPS)
+        // Location.ForegroundServiceType may be undefined in Expo Go
         ...(Platform.OS === 'android' ? {
-          serviceType: Location.ForegroundServiceType.GPS,
+          serviceType: (Location.ForegroundServiceType && Location.ForegroundServiceType.GPS) || 2,
         } : {}),
       },
 

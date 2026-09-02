@@ -278,7 +278,7 @@ async function createPost(req, res) {
     const Post = require('../models/Post');
     const User = require('../models/User');
     const userId = req.user.userId;
-    const { title, content, image_url } = req.body;
+    const { title, content, image_url, video_url } = req.body;
 
     if (!title || !title.trim()) {
       return res.status(400).json({ error: 'Title is required' });
@@ -290,7 +290,8 @@ async function createPost(req, res) {
       user_name: user?.name || 'Anonymous',
       title: title.trim(),
       content: (content || '').trim(),
-      image_url: image_url || null
+      image_url: image_url || null,
+      video_url: video_url || null,
     });
     await post.save();
 

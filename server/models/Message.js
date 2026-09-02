@@ -5,7 +5,9 @@ const MessageSchema = new Schema({
   group_id: { type: Schema.Types.ObjectId, ref: 'Group', required: true },
   sender_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   sender_name: { type: String, default: '' },
-  text: { type: String, required: true },
+  text: { type: String, default: '' },
+  media_url: { type: String, default: null },
+  media_type: { type: String, enum: ['image', 'video', null], default: null },
   created_at: { type: Date, default: Date.now }
 });
 

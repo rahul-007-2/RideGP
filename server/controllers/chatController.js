@@ -16,8 +16,14 @@ async function createGroup(req, res) {
 
     // Resolve member emails to user IDs
     let memberIds = [userId]; // creator is always a member
+    let notFoundEmails = [];
     if (member_emails && member_emails.length > 0) {
-      const users = await User.find({ email: { $in: member_emails } });
+      const normalized = member_emails
+        .map(e => (e || '').trim().toLowerCase())
+        .filter(e => e && e.includes('@'));
+      const users = await User.find({ email: { $in: normalized } });
+      const foundEmails = users.map(u => u.email.toLowerCase());
+      notFoundEmails = normalized.filter(e => !foundEmails.includes(e));
       memberIds = [...new Set([...memberIds, ...users.map(u => u._id.toString())])];
     }
 
@@ -34,7 +40,11 @@ async function createGroup(req, res) {
     // Populate member details
     await group.populate('members', 'name email');
 
-    res.status(201).json({ message: 'Group created', group });
+    let msg = 'Group created';
+    if (notFoundEmails.length > 0) {
+      msg += `. Not found: ${notFoundEmails.join(', ')} — they need to sign up first`;
+    }
+    res.status(201).json({ message: msg, group, not_found: notFoundEmails });
   } catch (err) {
     console.error('Create group error:', err);
     res.status(500).json({ error: err.message });
@@ -100,12 +110,17 @@ async function getGroup(req, res) {
 
 /**
  * Add members to a group
+ * Only adds users whose email exists in the database
  */
 async function addMembers(req, res) {
   try {
     const userId = req.user.userId;
     const { groupId } = req.params;
     const { member_emails } = req.body;
+
+    if (!member_emails || !Array.isArray(member_emails) || member_emails.length === 0) {
+      return res.status(400).json({ error: 'Please provide at least one email address' });
+    }
 
     const group = await Group.findById(groupId);
     if (!group) return res.status(404).json({ error: 'Group not found' });
@@ -114,15 +129,58 @@ async function addMembers(req, res) {
       return res.status(403).json({ error: 'Not a member' });
     }
 
-    if (member_emails && member_emails.length > 0) {
-      const users = await User.find({ email: { $in: member_emails } });
-      const newIds = users.map(u => u._id.toString());
-      group.members = [...new Set([...group.members.map(m => m.toString()), ...newIds])];
-      await group.save();
+    // Normalize emails: lowercase and trim
+    const normalizedEmails = member_emails
+      .map(e => (e || '').trim().toLowerCase())
+      .filter(e => e && e.includes('@'));
+
+    if (normalizedEmails.length === 0) {
+      return res.status(400).json({ error: 'Invalid email addresses' });
     }
 
+    // Find users by email — case-insensitive
+    const users = await User.find({
+      email: { $in: normalizedEmails }
+    });
+
+    const foundEmails = users.map(u => u.email.toLowerCase());
+    const notFoundEmails = normalizedEmails.filter(e => !foundEmails.includes(e));
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        error: `No user found with email: ${notFoundEmails.join(', ')}. They must sign up first.`
+      });
+    }
+
+    // Filter out users already in the group
+    const currentMemberIds = group.members.map(m => m.toString());
+    const newUserIds = users
+      .map(u => u._id.toString())
+      .filter(id => !currentMemberIds.includes(id));
+
+    if (newUserIds.length === 0) {
+      return res.status(400).json({
+        error: 'All these users are already in the group'
+      });
+    }
+
+    // Add new members
+    group.members = [...currentMemberIds, ...newUserIds];
+    await group.save();
     await group.populate('members', 'name email');
-    res.json({ message: 'Members added', group });
+
+    // Build response message
+    const addedNames = users
+      .filter(u => newUserIds.includes(u._id.toString()))
+      .map(u => u.name)
+      .join(', ');
+
+    let message = `Added: ${addedNames}`;
+    if (notFoundEmails.length > 0) {
+      message += `. Not found: ${notFoundEmails.join(', ')}`;
+    }
+
+    res.json({ message, group, added: newUserIds.length, not_found: notFoundEmails });
   } catch (err) {
     console.error('Add members error:', err);
     res.status(500).json({ error: err.message });
@@ -202,10 +260,10 @@ async function sendMessage(req, res) {
   try {
     const userId = req.user.userId;
     const { groupId } = req.params;
-    const { text } = req.body;
+    const { text, media_url, media_type } = req.body;
 
-    if (!text || !text.trim()) {
-      return res.status(400).json({ error: 'Message text is required' });
+    if ((!text || !text.trim()) && !media_url) {
+      return res.status(400).json({ error: 'Message text or media is required' });
     }
 
     const group = await Group.findById(groupId);
@@ -221,7 +279,9 @@ async function sendMessage(req, res) {
       group_id: groupId,
       sender_id: userId,
       sender_name: user?.name || 'Unknown',
-      text: text.trim()
+      text: (text || '').trim(),
+      media_url: media_url || null,
+      media_type: media_type || null,
     });
 
     await message.save();

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -51,6 +51,9 @@ export default function ProfileScreen({ navigation }) {
   const C = useColors();
   const serverUrl = (API_URL && API_URL.length > 0) ? API_URL : 'http://localhost:3000';
 
+  // Saved Routes
+  const [savedRoutes, setSavedRoutes] = useState([]);
+
   const loadProfile = async () => {
     try {
       setLoading(true);
@@ -76,7 +79,10 @@ export default function ProfileScreen({ navigation }) {
     }
   };
 
-  useFocusEffect(useCallback(() => { loadProfile(); }, []));
+  useFocusEffect(useCallback(() => {
+    loadProfile();
+    loadSavedRoutes();
+  }, []));
 
   // ─── Save personal info ────────────────────────────────────────
   const handleSaveProfile = async () => {
@@ -223,6 +229,44 @@ export default function ProfileScreen({ navigation }) {
     }
   };
 
+  const loadSavedRoutes = async () => {
+    try {
+      const authToken = await AsyncStorage.getItem('authToken');
+      if (!authToken) return;
+      const res = await fetch(`${serverUrl}/api/rides/saved-routes/list`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedRoutes(data.routes || []);
+      }
+    } catch (err) {
+      console.error('Load saved routes error:', err);
+    }
+  };
+
+  const deleteSavedRoute = async (routeId) => {
+    Alert.alert('Delete Route', 'Remove this saved route?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const authToken = await AsyncStorage.getItem('authToken');
+            await fetch(`${serverUrl}/api/rides/saved-routes/${routeId}`, {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${authToken}` },
+            });
+            setSavedRoutes(prev => prev.filter(r => r._id !== routeId));
+          } catch (err) {
+            Alert.alert('Error', err.message);
+          }
+        }
+      }
+    ]);
+  };
+
   async function handleSignOut() {
     await signOut();
   }
@@ -323,6 +367,35 @@ export default function ProfileScreen({ navigation }) {
           <StatItem value={(user?.average_ride_score || 0).toFixed(0)} label="Avg Score" icon="📊" />
           <StatItem value={`${Math.round(user?.total_ride_time_minutes || 0)} min`} label="Time" icon="⏱️" />
         </View>
+      </Card>
+
+      {/* Saved Routes */}
+      <Card>
+        <Text style={styles.sectionTitle}>📍 Saved Routes</Text>
+        {savedRoutes.length === 0 ? (
+          <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+            <Text style={{ fontSize: 32, marginBottom: 6 }}>🗺️</Text>
+            <Text style={{ ...Typography.small, color: C.textSecondary }}>No saved routes yet</Text>
+            <Text style={{ ...Typography.small, color: C.textMuted, fontSize: 11, marginTop: 2 }}>Save a route from Ride Details</Text>
+          </View>
+        ) : (
+          savedRoutes.map((route) => (
+            <TouchableOpacity
+              key={route._id}
+              style={styles.savedRouteRow}
+              onPress={() => Alert.alert(route.name, `Distance: ${(route.distance_km || 0).toFixed(1)} km\nRides on this route: ${route.ride_count || 0}`)}
+              activeOpacity={0.7}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.savedRouteName}>📌 {route.name}</Text>
+                <Text style={styles.savedRouteMeta}>{(route.distance_km || 0).toFixed(1)} km</Text>
+              </View>
+              <TouchableOpacity onPress={() => deleteSavedRoute(route._id)} style={{ padding: 8 }}>
+                <Text style={{ fontSize: 16, color: C.error }}>🗑️</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ))
+        )}
       </Card>
 
       {/* Dark Mode Toggle */}
@@ -450,6 +523,13 @@ const styles = StyleSheet.create({
   bikeActionBtn: { padding: 8 },
   bikeActionText: { fontSize: 16 },
   statsGrid: { flexDirection: 'row', justifyContent: 'space-between' },
+  savedRouteRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.borderLight, borderRadius: Radii.md,
+    padding: 14, marginBottom: 8,
+  },
+  savedRouteName: { ...Typography.h3, fontSize: 14, marginBottom: 2 },
+  savedRouteMeta: { ...Typography.small, fontSize: 12 },
   // Modal
   modalContainer: { flex: 1, backgroundColor: Colors.background },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border },

@@ -122,6 +122,19 @@ export default function RideScreen({ navigation }) {
   }, []);
 
   async function startTracking() {
+    // Require at least one bike selected
+    if (!selectedBike) {
+      Alert.alert(
+        'No bike selected',
+        'Please add at least one bike in your Profile → Garage and select it before starting a ride.',
+        [
+          { text: 'Cancel' },
+          { text: 'Go to Profile', onPress: () => navigation.navigate('MainTabs', { screen: 'Profile' }) },
+        ]
+      );
+      return;
+    }
+
     setPoints([]);
     pointsRef.current = [];
     setElapsedTime(0);
@@ -378,9 +391,18 @@ export default function RideScreen({ navigation }) {
           </View>
         )}
 
+        {/* No bike warning */}
+        {!tracking && userBikes.length === 0 && (
+          <View style={{ alignItems: 'center', marginBottom: 10 }}>
+            <Text style={{ fontSize: 13, color: Colors.error, fontWeight: '600' }}>
+              ⚠️ Add a bike in Profile → Garage first
+            </Text>
+          </View>
+        )}
+
         {/* Start/Stop Button */}
         <TouchableOpacity
-          style={[styles.actionBtn, tracking ? styles.stopBtn : styles.startBtn]}
+          style={[styles.actionBtn, tracking ? styles.stopBtn : (!selectedBike ? styles.startBtnDisabled : styles.startBtn)]}
           onPress={() => (tracking ? stopTracking() : startTracking())}
           activeOpacity={0.85}
           disabled={saving}
@@ -526,6 +548,9 @@ const styles = StyleSheet.create({
   startBtn: {
     backgroundColor: Colors.primary,
     ...Shadows.primary,
+  },
+  startBtnDisabled: {
+    backgroundColor: Colors.primary + '60',
   },
   stopBtn: {
     backgroundColor: Colors.error,

@@ -26,6 +26,7 @@ const Streak = require('./models/Streak');
 const RouteCohort = require('./models/RouteCohort');
 const MonthlyWrapped = require('./models/MonthlyWrapped');
 const Post = require('./models/Post');
+const SavedRoute = require('./models/SavedRoute');
 const Group = require('./models/Group');
 const Message = require('./models/Message');
 
