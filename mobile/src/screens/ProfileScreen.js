@@ -13,6 +13,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography, Shadows, Radii, Spacing, useColors } from '../lib/theme';
+import MapView, { Polyline, Marker } from 'react-native-maps';
+import { Dimensions } from 'react-native';
+import { API_URL } from '@env';
 import { PrimaryButton, DangerButton, SecondaryButton, Card, StatItem } from '../lib/components';
 import { API_URL } from '@env';
 import { useFocusEffect } from '@react-navigation/native';
@@ -53,6 +56,10 @@ export default function ProfileScreen({ navigation }) {
 
   // Saved Routes
   const [savedRoutes, setSavedRoutes] = useState([]);
+  const [viewingRoute, setViewingRoute] = useState(null);
+  const [routeMapRegion, setRouteMapRegion] = useState(null);
+
+  const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
   const loadProfile = async () => {
     try {
@@ -245,6 +252,31 @@ export default function ProfileScreen({ navigation }) {
     }
   };
 
+  const computeRouteRegion = (geo) => {
+    if (!geo || geo.length === 0) return null;
+    const lats = geo.map(p => p.latitude);
+    const lngs = geo.map(p => p.longitude);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    return {
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: (maxLat - minLat) * 0.3 + 0.005,
+      longitudeDelta: (maxLng - minLng) * 0.3 + 0.005,
+    };
+  };
+
+  const openSavedRoute = (route) => {
+    if (!route.geo || route.geo.length < 2) {
+      Alert.alert(route.name, `Distance: ${(route.distance_km || 0).toFixed(1)} km`);
+      return;
+    }
+    setRouteMapRegion(computeRouteRegion(route.geo));
+    setViewingRoute(route);
+  };
+
   const deleteSavedRoute = async (routeId) => {
     Alert.alert('Delete Route', 'Remove this saved route?', [
       { text: 'Cancel', style: 'cancel' },
@@ -379,22 +411,49 @@ export default function ProfileScreen({ navigation }) {
             <Text style={{ ...Typography.small, color: C.textMuted, fontSize: 11, marginTop: 2 }}>Save a route from Ride Details</Text>
           </View>
         ) : (
-          savedRoutes.map((route) => (
-            <TouchableOpacity
-              key={route._id}
-              style={styles.savedRouteRow}
-              onPress={() => Alert.alert(route.name, `Distance: ${(route.distance_km || 0).toFixed(1)} km\nRides on this route: ${route.ride_count || 0}`)}
-              activeOpacity={0.7}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.savedRouteName}>📌 {route.name}</Text>
-                <Text style={styles.savedRouteMeta}>{(route.distance_km || 0).toFixed(1)} km</Text>
-              </View>
-              <TouchableOpacity onPress={() => deleteSavedRoute(route._id)} style={{ padding: 8 }}>
-                <Text style={{ fontSize: 16, color: C.error }}>🗑️</Text>
+          savedRoutes.map((route) => {
+            const region = route.geo?.length > 1 ? computeRouteRegion(route.geo) : null;
+            return (
+              <TouchableOpacity
+                key={route._id}
+                style={styles.savedRouteCard}
+                onPress={() => openSavedRoute(route)}
+                activeOpacity={0.7}
+              >
+                {/* Mini map preview */}
+                {region ? (
+                  <MapView
+                    style={styles.savedRouteMap}
+                    region={region}
+                    scrollEnabled={false}
+                    zoomEnabled={false}
+                    pitchEnabled={false}
+                    rotateEnabled={false}
+                    cacheEnabled={true}
+                  >
+                    <Polyline
+                      coordinates={route.geo.map(p => ({ latitude: p.latitude, longitude: p.longitude }))}
+                      strokeWidth={3}
+                      strokeColor={Colors.primary}
+                    />
+                  </MapView>
+                ) : (
+                  <View style={[styles.savedRouteMap, { backgroundColor: Colors.borderLight, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Text style={{ fontSize: 24 }}>🗺️</Text>
+                  </View>
+                )}
+                <View style={styles.savedRouteInfo}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.savedRouteName}>{route.name}</Text>
+                    <Text style={styles.savedRouteMeta}>{(route.distance_km || 0).toFixed(1)} km · Tap to view</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => deleteSavedRoute(route._id)} style={{ padding: 8 }}>
+                    <Text style={{ fontSize: 16, color: C.error }}>🗑️</Text>
+                  </TouchableOpacity>
+                </View>
               </TouchableOpacity>
-            </TouchableOpacity>
-          ))
+            );
+          })
         )}
       </Card>
 
@@ -431,6 +490,89 @@ export default function ProfileScreen({ navigation }) {
               <FormField label="Fuel Efficiency (km/l)" value={fuelEfficiency} onChangeText={setFuelEfficiency} placeholder="40" keyboardType="decimal-pad" style={{ flex: 1, marginRight: 8 }} />
               <FormField label="Fuel Price (₹/l)" value={fuelPrice} onChangeText={setFuelPrice} placeholder="90" keyboardType="decimal-pad" style={{ flex: 1 }} />
             </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ─── Saved Route Detail Modal ─────────────────────────── */}
+      <Modal visible={!!viewingRoute} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalHeader, { paddingTop: insets.top + Spacing.md }]}>
+            <TouchableOpacity onPress={() => { setViewingRoute(null); setRouteMapRegion(null); }}>
+              <Text style={styles.modalCancel}>Done</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>{viewingRoute?.name || 'Route'}</Text>
+            <View style={{ width: 60 }} />
+          </View>
+
+          {viewingRoute && viewingRoute.geo && routeMapRegion && (
+            <View style={{ height: 300, marginHorizontal: Spacing.lg, marginTop: 12, borderRadius: Radii.lg, overflow: 'hidden' }}>
+              <MapView
+                style={{ flex: 1 }}
+                region={routeMapRegion}
+                scrollEnabled={true}
+                zoomEnabled={true}
+                pitchEnabled={true}
+                rotateEnabled={true}
+              >
+                <Polyline
+                  coordinates={viewingRoute.geo.map(p => ({ latitude: p.latitude, longitude: p.longitude }))}
+                  strokeWidth={4}
+                  strokeColor={Colors.primary}
+                />
+                {viewingRoute.origin && (
+                  <Marker coordinate={{ latitude: viewingRoute.origin.latitude, longitude: viewingRoute.origin.longitude }} title="Start" pinColor="green" />
+                )}
+                {viewingRoute.destination && (
+                  <Marker coordinate={{ latitude: viewingRoute.destination.latitude, longitude: viewingRoute.destination.longitude }} title="End" pinColor="red" />
+                )}
+              </MapView>
+            </View>
+          )}
+
+          <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+            {viewingRoute && (
+              <>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ ...Typography.h2, fontSize: 22, color: C.text }}>{viewingRoute.name}</Text>
+                    <Text style={{ ...Typography.small, color: C.textSecondary, marginTop: 4 }}>
+                      {(viewingRoute.distance_km || 0).toFixed(1)} km
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Quick Stats */}
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+                  <View style={{ flex: 1, backgroundColor: C.borderLight, borderRadius: Radii.md, padding: 14, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 22, marginBottom: 4 }}>📏</Text>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: C.primary }}>{(viewingRoute.distance_km || 0).toFixed(1)}</Text>
+                    <Text style={{ ...Typography.small, color: C.textSecondary }}>km</Text>
+                  </View>
+                  <View style={{ flex: 1, backgroundColor: C.borderLight, borderRadius: Radii.md, padding: 14, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 22, marginBottom: 4 }}>📍</Text>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: C.primary }}>{viewingRoute.geo?.length || 0}</Text>
+                    <Text style={{ ...Typography.small, color: C.textSecondary }}>points</Text>
+                  </View>
+                  <View style={{ flex: 1, backgroundColor: C.borderLight, borderRadius: Radii.md, padding: 14, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 22, marginBottom: 4 }}>🏍️</Text>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: C.primary }}>{viewingRoute.ride_count || 0}</Text>
+                    <Text style={{ ...Typography.small, color: C.textSecondary }}>rides</Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={{ backgroundColor: Colors.error + '10', borderRadius: Radii.md, padding: 16, alignItems: 'center' }}
+                  onPress={() => {
+                    setViewingRoute(null);
+                    setRouteMapRegion(null);
+                    deleteSavedRoute(viewingRoute._id);
+                  }}
+                >
+                  <Text style={{ color: Colors.error, fontWeight: '700', fontSize: 15 }}>🗑️ Delete Route</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </ScrollView>
         </View>
       </Modal>
@@ -523,11 +665,12 @@ const styles = StyleSheet.create({
   bikeActionBtn: { padding: 8 },
   bikeActionText: { fontSize: 16 },
   statsGrid: { flexDirection: 'row', justifyContent: 'space-between' },
-  savedRouteRow: {
-    flexDirection: 'row', alignItems: 'center',
+  savedRouteCard: {
     backgroundColor: Colors.borderLight, borderRadius: Radii.md,
-    padding: 14, marginBottom: 8,
+    overflow: 'hidden', marginBottom: 12,
   },
+  savedRouteMap: { width: '100%', height: 120 },
+  savedRouteInfo: { flexDirection: 'row', alignItems: 'center', padding: 12 },
   savedRouteName: { ...Typography.h3, fontSize: 14, marginBottom: 2 },
   savedRouteMeta: { ...Typography.small, fontSize: 12 },
   // Modal
