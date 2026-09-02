@@ -31,7 +31,7 @@ export default function HomeScreen({ navigation }) {
       const userData = await AsyncStorage.getItem('user');
 
       if (!authToken || !userData) {
-        navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
+        navigation.getParent()?.reset({ index: 0, routes: [{ name: 'Auth' }] });
         return;
       }
 
@@ -244,9 +244,9 @@ export default function HomeScreen({ navigation }) {
           <Text style={styles.actionEmoji}>📦</Text>
           <Text style={styles.actionLabel}>Wrapped</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionCard} onPress={() => navigation.navigate('Broadcast')} activeOpacity={0.7}>
-          <Text style={styles.actionEmoji}>📢</Text>
-          <Text style={styles.actionLabel}>Broadcast</Text>
+        <TouchableOpacity style={styles.actionCard} onPress={() => navigation.navigate('Groups')} activeOpacity={0.7}>
+          <Text style={styles.actionEmoji}>👥</Text>
+          <Text style={styles.actionLabel}>Groups</Text>
         </TouchableOpacity>
       </View>
 

@@ -26,18 +26,22 @@ const Streak = require('./models/Streak');
 const RouteCohort = require('./models/RouteCohort');
 const MonthlyWrapped = require('./models/MonthlyWrapped');
 const Post = require('./models/Post');
+const Group = require('./models/Group');
+const Message = require('./models/Message');
 
 // Import routes
 const authRoutes = require('./routes/auth');
 const ridesRoutes = require('./routes/rides');
 const gamificationRoutes = require('./routes/gamification');
 const communityRoutes = require('./routes/community');
+const chatRoutes = require('./routes/chat');
 
 // Register routes
 app.use('/api/auth', authRoutes);
 app.use('/api/rides', ridesRoutes);
 app.use('/api/gamification', gamificationRoutes);
 app.use('/api/community', communityRoutes);
+app.use('/api/chat', chatRoutes);
 
 // Broadcast notifications to all saved tokens in Supabase
 const { createClient } = require('@supabase/supabase-js');

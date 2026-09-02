@@ -18,6 +18,7 @@ import MonthlyWrappedScreen from './src/screens/MonthlyWrappedScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import BroadcastScreen from './src/screens/BroadcastScreen';
+import GroupChatScreen from './src/screens/GroupChatScreen';
 
 import { registerForPushNotificationsAsync } from './src/lib/notifications';
 import { Colors, Shadows } from './src/lib/theme';
@@ -145,7 +146,8 @@ export default function App() {
                 <Stack.Screen name="Community" component={CommunityScreen} />
                 <Stack.Screen name="Insights" component={InsightsScreen} />
                 <Stack.Screen name="Wrapped" component={MonthlyWrappedScreen} />
-                <Stack.Screen name="Broadcast" component={BroadcastScreen} />
+                <Stack.Screen name="Groups" component={BroadcastScreen} />
+                <Stack.Screen name="GroupChat" component={GroupChatScreen} />
               </>
             ) : (
               <Stack.Screen

@@ -54,7 +54,7 @@ export default function ProfileScreen({ navigation }) {
       const userData = await AsyncStorage.getItem('user');
 
       if (!authToken || !userData) {
-        navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
+        navigation.getParent()?.reset({ index: 0, routes: [{ name: 'Auth' }] });
         return;
       }
 
@@ -222,7 +222,8 @@ export default function ProfileScreen({ navigation }) {
   async function handleSignOut() {
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('user');
-    navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
+    // Reset the root stack navigator (parent of the tab navigator)
+    navigation.getParent()?.reset({ index: 0, routes: [{ name: 'Auth' }] });
   }
 
   if (loading) {
