@@ -49,6 +49,10 @@ const RideSchema = new Schema({
     fuel_efficiency: { type: Number, default: 0 }
   },
   
+  // Bike used for this ride
+  bike_id: { type: String, default: null },
+  bike_name: { type: String, default: '' },
+  
   // Time Information
   start_time: { type: Date, required: true },
   end_time: { type: Date, required: true },

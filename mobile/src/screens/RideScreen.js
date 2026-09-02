@@ -1,20 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Button, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  TouchableOpacity,
+  SafeAreaView,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Polyline, Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { computeRideMetrics, estimateFuelCost, computeRideScore } from '../lib/rideUtils';
 import { FUEL_EFFICIENCY_KM_PER_L, FUEL_PRICE_PER_L, API_URL } from '@env';
 import { startBackgroundTracking, stopBackgroundTracking, getInProgressRide } from '../lib/background';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors } from '../lib/theme';
-
-export default function RideScreen({ navigation }) {
+import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';export default function RideScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [tracking, setTracking] = useState(false);
   const [points, setPoints] = useState([]);
   const [region, setRegion] = useState(null);
   const [saving, setSaving] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const watchRef = useRef(null);
+  const [userBikes, setUserBikes] = useState([]);
+  const [selectedBike, setSelectedBike] = useState(null);
   const intervalRef = useRef(null);
   const startTimeRef = useRef(null);
   const timerRef = useRef(null);
@@ -23,16 +32,27 @@ export default function RideScreen({ navigation }) {
 
   useEffect(() => {
     (async () => {
+      // Load user's bikes
+      try {
+        const userData = await AsyncStorage.getItem('user');
+        if (userData) {
+          const u = JSON.parse(userData);
+          const b = u.bikes || [];
+          setUserBikes(b);
+          const active = b.find(x => x.bike_id === u.active_bike_id) || b[0] || null;
+          setSelectedBike(active);
+        }
+      } catch (e) { console.warn('Load bikes error', e.message); }
+
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission required', 'Location permission is required to track rides');
       }
-      // check for in-progress ride from crash
       const inProg = await getInProgressRide();
       if (inProg && inProg.points && inProg.points.length > 0) {
-        Alert.alert('Resume ride', 'An in-progress ride was found. Resume collecting or discard?', [
+        Alert.alert('Resume ride', 'An in-progress ride was found. Resume or discard?', [
           { text: 'Discard', onPress: async () => { await AsyncStorage.removeItem('in_progress_ride'); } },
-          { text: 'Resume', onPress: () => setPoints(inProg.points) }
+          { text: 'Resume', onPress: () => setPoints(inProg.points) },
         ]);
       }
     })();
@@ -47,9 +67,9 @@ export default function RideScreen({ navigation }) {
       latitude: loc.coords.latitude,
       longitude: loc.coords.longitude,
       timestamp: Date.now(),
-      speed_kmh: loc.coords.speed != null ? loc.coords.speed * 3.6 : 0 // m/s to km/h
+      speed_kmh: loc.coords.speed != null ? loc.coords.speed * 3.6 : 0,
     };
-    setPoints(prev => [...prev, point]);
+    setPoints((prev) => [...prev, point]);
     setRegion({ latitude: point.latitude, longitude: point.longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 });
   }
 
@@ -59,14 +79,12 @@ export default function RideScreen({ navigation }) {
     setTracking(true);
     startTimeRef.current = Date.now();
 
-    // Start timer
     timerRef.current = setInterval(() => {
-      setElapsedTime(prev => prev + 1);
+      setElapsedTime((prev) => prev + 1);
     }, 1000);
 
     const started = await startBackgroundTracking();
     if (!started) {
-      // fallback to foreground sampling
       try {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
         sampleLocation(loc);
@@ -96,7 +114,6 @@ export default function RideScreen({ navigation }) {
     }
     setTracking(false);
 
-    // stop background tracking and collect saved points
     const bgPoints = await stopBackgroundTracking();
     const allPoints = (points || []).concat(bgPoints || []);
 
@@ -116,55 +133,51 @@ export default function RideScreen({ navigation }) {
 
       const metrics = computeRideMetrics(allPoints);
       const user = JSON.parse(await AsyncStorage.getItem('user'));
-      const fuelCost = estimateFuelCost(
-        metrics.distance_km,
-        user?.fuel_efficiency_kmpl || 40,
-        user?.fuel_price_per_liter || 90
-      );
-      const scoreObj = computeRideScore(metrics);
+      // Use selected bike's fuel data if available
+      const bikeFuelEff = selectedBike?.fuel_efficiency_kmpl || user?.fuel_efficiency_kmpl || 40;
+      const bikeFuelPrice = selectedBike?.fuel_price_per_liter || user?.fuel_price_per_liter || 90;
+      const fuelCost = estimateFuelCost(metrics.distance_km, bikeFuelEff, bikeFuelPrice);
+      const score = computeRideScore(metrics);
 
-      // Save to backend
+      const bikeName = selectedBike ? (selectedBike.nickname || `${selectedBike.make} ${selectedBike.model}`.trim() || '') : '';
+
       const response = await fetch(`${serverUrl}/api/rides`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
+          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           metrics,
           geo: allPoints,
           fuel_cost: fuelCost,
-          score: scoreObj.total_score,
+          score,
           route_name: 'Tracked Route',
-          ride_type: 'commute'
-        })
+          ride_type: 'commute',
+          bike_id: selectedBike?.bike_id || null,
+          bike_name: bikeName,
+        }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to save ride');
-      }
+      if (!response.ok) throw new Error('Failed to save ride');
 
-      const data = await response.json();
-
-      // Update streak
       await fetch(`${serverUrl}/api/gamification/streak/update`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
+          Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ rideDate: new Date().toISOString() })
+        body: JSON.stringify({ rideDate: new Date().toISOString() }),
       });
 
-      // Check achievements
       await fetch(`${serverUrl}/api/gamification/achievements/check`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { Authorization: `Bearer ${authToken}` },
       });
 
       Alert.alert(
         'Ride Saved! 🎉',
-        `Distance: ${metrics.distance_km.toFixed(1)} km\nDuration: ${Math.round(metrics.duration_minutes)} min\nScore: ${Math.round(scoreObj.total_score)}/100\nFuel Cost: ₹${fuelCost.toFixed(0)}`,
+        `Distance: ${metrics.distance_km.toFixed(1)} km\nDuration: ${Math.round(metrics.duration_s / 60)} min\nScore: ${score}/100\nFuel Cost: ₹${fuelCost.toFixed(0)}`,
         [{ text: 'OK', onPress: () => navigation.navigate('Home') }]
       );
 
@@ -190,15 +203,10 @@ export default function RideScreen({ navigation }) {
 
   return (
     <View style={{ flex: 1 }}>
-      <MapView
-        style={{ flex: 1 }}
-        region={region}
-        showsUserLocation
-        followsUserLocation
-      >
+      <MapView style={{ flex: 1 }} region={region} showsUserLocation followsUserLocation>
         {points.length > 0 && (
           <Polyline
-            coordinates={points.map(p => ({ latitude: p.latitude, longitude: p.longitude }))}
+            coordinates={points.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))}
             strokeWidth={4}
             strokeColor={Colors.primary}
           />
@@ -207,60 +215,112 @@ export default function RideScreen({ navigation }) {
           <Marker coordinate={{ latitude: points[0].latitude, longitude: points[0].longitude }} title="Start" pinColor="green" />
         )}
         {points.length > 0 && (
-          <Marker coordinate={{ latitude: points[points.length - 1].latitude, longitude: points[points.length - 1].longitude }} title="Current" pinColor="red" />
+          <Marker
+            coordinate={{
+              latitude: points[points.length - 1].latitude,
+              longitude: points[points.length - 1].longitude,
+            }}
+            title="Current"
+            pinColor="red"
+          />
         )}
       </MapView>
 
-      <View style={[styles.controls, { backgroundColor: Colors.card }]}>
+      {/* Back Button Overlay */}
+      <TouchableOpacity
+        style={[styles.backButton, { top: insets.top + 12 }]}
+        onPress={() => navigation.goBack()}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.backButtonText}>‹</Text>
+      </TouchableOpacity>
+
+      {/* Bottom Panel */}
+      <View style={[styles.bottomPanel, { paddingBottom: insets.bottom + 16 }]}>
+        {/* Live Stats */}
         {tracking && (
           <View style={styles.liveStats}>
             <Text style={styles.timer}>{formatTime(elapsedTime)}</Text>
             {metricsPreview && (
               <View style={styles.statsRow}>
-                <Text style={styles.stat}>📏 {metricsPreview.distance_km.toFixed(2)} km</Text>
-                <Text style={styles.stat}>⚡ {metricsPreview.average_speed_kmh.toFixed(0)} km/h</Text>
+                <View style={styles.statPill}>
+                  <Text style={styles.statPillText}>📏 {metricsPreview.distance_km.toFixed(2)} km</Text>
+                </View>
+                <View style={styles.statPill}>
+                  <Text style={styles.statPillText}>⚡ {metricsPreview.avg_speed_kmh.toFixed(0)} km/h</Text>
+                </View>
               </View>
             )}
           </View>
         )}
 
-        <View style={styles.buttonContainer}>
-          <Button
-            title={saving ? 'Saving...' : (tracking ? '⏹️ Stop Ride' : '▶️ Start Ride')}
-            onPress={() => (tracking ? stopTracking() : startTracking())}
-            color={tracking ? '#ff3b30' : Colors.primary}
-            disabled={saving}
-          />
-        </View>
+        {/* Bike Selector */}
+        {!tracking && userBikes.length > 0 && (
+          <View style={styles.bikeSelector}>
+            <Text style={styles.bikeSelectorLabel}>Riding:</Text>
+            <View style={styles.bikePills}>
+              {userBikes.map((bike) => {
+                const isSelected = selectedBike?.bike_id === bike.bike_id;
+                const label = bike.nickname || bike.model || bike.make || 'Bike';
+                return (
+                  <TouchableOpacity
+                    key={bike.bike_id}
+                    style={[styles.bikePill, isSelected && styles.bikePillActive]}
+                    onPress={() => setSelectedBike(bike)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.bikePillText, isSelected && styles.bikePillTextActive]}>🏍️ {label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
+        {/* Start/Stop Button */}
+        <TouchableOpacity
+          style={[styles.actionBtn, tracking ? styles.stopBtn : styles.startBtn]}
+          onPress={() => (tracking ? stopTracking() : startTracking())}
+          activeOpacity={0.85}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.actionBtnText}>{tracking ? '⏹  Stop Ride' : '▶  Start Ride'}</Text>
+          )}
+        </TouchableOpacity>
+
+        {/* Ride Summary */}
         {metricsPreview && !tracking && (
-          <View style={styles.metricsPreview}>
-            <Text style={styles.metricsTitle}>Ride Summary</Text>
-            <View style={styles.metricsGrid}>
-              <View style={styles.metricItem}>
-                <Text style={styles.metricValue}>{metricsPreview.distance_km.toFixed(1)}</Text>
-                <Text style={styles.metricLabel}>km</Text>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>Ride Summary</Text>
+            <View style={styles.summaryGrid}>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryValue}>{metricsPreview.distance_km.toFixed(1)}</Text>
+                <Text style={styles.summaryLabel}>km</Text>
               </View>
-              <View style={styles.metricItem}>
-                <Text style={styles.metricValue}>{Math.round(metricsPreview.duration_minutes)}</Text>
-                <Text style={styles.metricLabel}>min</Text>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryValue}>{Math.round(metricsPreview.duration_s / 60)}</Text>
+                <Text style={styles.summaryLabel}>min</Text>
               </View>
-              <View style={styles.metricItem}>
-                <Text style={styles.metricValue}>{metricsPreview.average_speed_kmh.toFixed(0)}</Text>
-                <Text style={styles.metricLabel}>avg km/h</Text>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryValue}>{metricsPreview.avg_speed_kmh.toFixed(0)}</Text>
+                <Text style={styles.summaryLabel}>km/h avg</Text>
               </View>
-              <View style={styles.metricItem}>
-                <Text style={styles.metricValue}>{Math.round(scorePreview?.total_score || 0)}</Text>
-                <Text style={styles.metricLabel}>score</Text>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryValue}>{scorePreview}</Text>
+                <Text style={styles.summaryLabel}>score</Text>
               </View>
             </View>
           </View>
         )}
       </View>
 
+      {/* Saving Overlay */}
       {saving && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+          <ActivityIndicator size="large" color="#fff" />
           <Text style={styles.loadingText}>Saving ride...</Text>
         </View>
       )}
@@ -269,76 +329,132 @@ export default function RideScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  controls: {
-    padding: 16,
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20
+  backButton: {
+    position: 'absolute',
+    left: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.medium,
+  },
+  backButtonText: {
+    fontSize: 28,
+    color: Colors.text,
+    fontWeight: '300',
+    marginTop: -2,
+  },
+  bottomPanel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    ...Shadows.large,
   },
   liveStats: {
+    alignItems: 'center',
     marginBottom: 12,
-    alignItems: 'center'
   },
   timer: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '800',
     color: Colors.primary,
-    marginBottom: 8
+    marginBottom: 10,
   },
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%'
+    gap: 10,
   },
-  stat: {
-    fontSize: 12,
-    color: '#666'
+  statPill: {
+    backgroundColor: Colors.borderLight,
+    borderRadius: Radii.full,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
   },
-  buttonContainer: {
-    marginBottom: 12
-  },
-  metricsPreview: {
-    backgroundColor: 'rgba(59, 209, 227, 0.1)',
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 12
-  },
-  metricsTitle: {
-    fontSize: 14,
+  statPillText: {
+    fontSize: 13,
     fontWeight: '600',
-    marginBottom: 8,
-    color: '#000'
+    color: Colors.text,
   },
-  metricsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between'
+  bikeSelector: { marginBottom: 10 },
+  bikeSelectorLabel: { ...Typography.small, marginBottom: 6 },
+  bikePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  bikePill: {
+    backgroundColor: Colors.borderLight, borderRadius: Radii.full,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1.5, borderColor: 'transparent',
   },
-  metricItem: {
-    alignItems: 'center'
+  bikePillActive: { backgroundColor: Colors.primary + '15', borderColor: Colors.primary },
+  bikePillText: { fontSize: 13, fontWeight: '500', color: Colors.textSecondary },
+  bikePillTextActive: { color: Colors.primary, fontWeight: '700' },
+  actionBtn: {
+    borderRadius: Radii.lg,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  metricValue: {
-    fontSize: 16,
+  startBtn: {
+    backgroundColor: Colors.primary,
+    ...Shadows.primary,
+  },
+  stopBtn: {
+    backgroundColor: Colors.error,
+    shadowColor: Colors.error,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  actionBtnText: {
+    fontSize: 17,
     fontWeight: '700',
-    color: Colors.primary
+    color: '#fff',
   },
-  metricLabel: {
+  summaryCard: {
+    backgroundColor: Colors.borderLight,
+    borderRadius: Radii.md,
+    padding: 14,
+    marginTop: 12,
+  },
+  summaryTitle: {
+    ...Typography.label,
+    marginBottom: 10,
+    fontSize: 13,
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  summaryItem: {
+    alignItems: 'center',
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  summaryLabel: {
     fontSize: 10,
-    color: '#666',
-    marginTop: 2
+    color: Colors.textMuted,
+    marginTop: 2,
   },
   loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: Colors.overlay,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center'
   },
   loadingText: {
     color: '#fff',
     marginTop: 12,
-    fontSize: 14
-  }
+    fontSize: 14,
+    fontWeight: '500',
+  },
 });

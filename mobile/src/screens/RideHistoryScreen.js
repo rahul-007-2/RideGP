@@ -1,10 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  TouchableOpacity,
+  RefreshControl,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors } from '../lib/theme';
+import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';
+import { Card, PrimaryButton, SecondaryButton, EmptyState } from '../lib/components';
 import { API_URL } from '@env';
 
 export default function RideHistoryScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [rides, setRides] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -18,7 +29,7 @@ export default function RideHistoryScreen({ navigation }) {
       if (!authToken) return;
 
       const res = await fetch(`${serverUrl}/api/rides?limit=50`, {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { Authorization: `Bearer ${authToken}` },
       });
 
       if (res.ok) {
@@ -38,10 +49,8 @@ export default function RideHistoryScreen({ navigation }) {
   }, []);
 
   const toggleRideSelection = (rideId) => {
-    setSelectedRides(prev =>
-      prev.includes(rideId)
-        ? prev.filter(id => id !== rideId)
-        : [...prev, rideId]
+    setSelectedRides((prev) =>
+      prev.includes(rideId) ? prev.filter((id) => id !== rideId) : [...prev, rideId]
     );
   };
 
@@ -57,9 +66,9 @@ export default function RideHistoryScreen({ navigation }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`
+          Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ rideIds: selectedRides })
+        body: JSON.stringify({ rideIds: selectedRides }),
       });
 
       if (res.ok) {
@@ -68,13 +77,12 @@ export default function RideHistoryScreen({ navigation }) {
       }
     } catch (err) {
       console.error('Compare error:', err);
-      alert('Failed to compare rides');
     }
   };
 
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
@@ -82,63 +90,97 @@ export default function RideHistoryScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>📋 Ride History</Text>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: insets.top + Spacing.lg }]}>
+        <Text style={styles.title}>Ride History</Text>
         {selectedRides.length > 1 && (
-          <TouchableOpacity style={styles.compareButton} onPress={handleCompare}>
-            <Text style={styles.compareButtonText}>Compare ({selectedRides.length})</Text>
-          </TouchableOpacity>
+          <PrimaryButton
+            title={`Compare (${selectedRides.length})`}
+            onPress={handleCompare}
+            small
+            style={{ paddingHorizontal: 14 }}
+          />
         )}
       </View>
 
       <ScrollView
-        style={styles.listContainer}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadRides(); }} />}
+        contentContainerStyle={styles.listContainer}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadRides(); }} tintColor={Colors.primary} />
+        }
       >
         {rides.length === 0 ? (
-          <Text style={styles.noData}>No rides yet. Start your first ride!</Text>
+          <EmptyState icon="📋" title="No rides yet" message="Start your first ride and it will appear here" />
         ) : (
-          rides.map((ride) => (
-            <TouchableOpacity
-              key={ride._id}
-              style={[
-                styles.rideCard,
-                selectedRides.includes(ride._id) && styles.rideCardSelected
-              ]}
-              onPress={() => toggleRideSelection(ride._id)}
-            >
-              <View style={styles.rideHeader}>
-                <Text style={styles.rideDate}>
-                  {new Date(ride.start_time).toLocaleDateString()} {new Date(ride.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </Text>
-                <Text style={styles.rideScore}>{ride.score ? Math.round(ride.score) : '--'}</Text>
-              </View>
+          rides.map((ride) => {
+            const isSelected = selectedRides.includes(ride._id);
+            return (
+              <TouchableOpacity
+                key={ride._id}
+                style={[styles.rideCard, isSelected && styles.rideCardSelected]}
+                onPress={() => toggleRideSelection(ride._id)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.rideHeader}>
+                  <View style={styles.rideDateBlock}>
+                    <Text style={styles.rideDate}>
+                      {new Date(ride.start_time).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </Text>
+                    <Text style={styles.rideTime}>
+                      {new Date(ride.start_time).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </Text>
+                  </View>
+                  <View style={[styles.scoreBadge, isSelected && styles.scoreBadgeSelected]}>
+                    <Text style={styles.scoreText}>{ride.score ? Math.round(ride.score) : '--'}</Text>
+                    <Text style={styles.scoreUnit}>pts</Text>
+                  </View>
+                </View>
 
-              <View style={styles.rideDetails}>
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>📏</Text>
-                  <Text style={styles.detailValue}>{ride.metrics?.distance_km?.toFixed(1) || 0} km</Text>
+                <View style={styles.rideStatsRow}>
+                  <View style={styles.rideStat}>
+                    <Text style={styles.rideStatIcon}>📏</Text>
+                    <Text style={styles.rideStatValue}>{ride.metrics?.distance_km?.toFixed(1) || 0} km</Text>
+                  </View>
+                  <View style={styles.rideStat}>
+                    <Text style={styles.rideStatIcon}>⏱️</Text>
+                    <Text style={styles.rideStatValue}>{Math.round(ride.metrics?.duration_minutes || 0)} min</Text>
+                  </View>
+                  <View style={styles.rideStat}>
+                    <Text style={styles.rideStatIcon}>⚡</Text>
+                    <Text style={styles.rideStatValue}>{ride.metrics?.average_speed_kmh?.toFixed(0) || 0} km/h</Text>
+                  </View>
+                  <View style={styles.rideStat}>
+                    <Text style={styles.rideStatIcon}>⛽</Text>
+                    <Text style={styles.rideStatValue}>₹{ride.fuel_cost?.toFixed(0) || 0}</Text>
+                  </View>
                 </View>
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>⏱️</Text>
-                  <Text style={styles.detailValue}>{Math.round(ride.metrics?.duration_minutes || 0)} min</Text>
-                </View>
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>⚡</Text>
-                  <Text style={styles.detailValue}>{ride.metrics?.average_speed_kmh?.toFixed(0) || 0} km/h</Text>
-                </View>
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>⛽</Text>
-                  <Text style={styles.detailValue}>₹{ride.fuel_cost?.toFixed(0) || 0}</Text>
-                </View>
-              </View>
 
-              {ride.route_name && (
-                <Text style={styles.routeName}>📍 {ride.route_name}</Text>
-              )}
-            </TouchableOpacity>
-          ))
+                <View style={styles.metaRow}>
+                  {ride.bike_name ? (
+                    <View style={styles.bikeTag}>
+                      <Text style={styles.bikeTagText}>🏍️ {ride.bike_name}</Text>
+                    </View>
+                  ) : null}
+                  {ride.route_name ? (
+                    <View style={styles.routeTag}>
+                      <Text style={styles.routeTagText}>📍 {ride.route_name}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {isSelected && <View style={styles.selectedIndicator} />}
+              </TouchableOpacity>
+            );
+          })
         )}
+        <View style={{ height: 100 }} />
       </ScrollView>
     </View>
   );
@@ -148,88 +190,110 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    padding: 16
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#000'
-  },
-  compareButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8
-  },
-  compareButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 12
+    ...Typography.h1,
   },
   listContainer: {
-    flex: 1
-  },
-  noData: {
-    textAlign: 'center',
-    color: Colors.muted,
-    marginTop: 40,
-    fontSize: 14
+    paddingHorizontal: Spacing.lg,
   },
   rideCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.lg,
+    padding: Spacing.lg,
     marginBottom: 12,
     borderWidth: 2,
-    borderColor: 'transparent'
+    borderColor: 'transparent',
+    ...Shadows.medium,
   },
   rideCardSelected: {
     borderColor: Colors.primary,
-    backgroundColor: 'rgba(59, 209, 227, 0.05)'
+    backgroundColor: Colors.primary + '05',
   },
   rideHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8
+    marginBottom: 12,
   },
+  rideDateBlock: {},
   rideDate: {
-    fontSize: 14,
+    ...Typography.h3,
+    fontSize: 16,
+  },
+  rideTime: {
+    ...Typography.caption,
+    marginTop: 2,
+  },
+  scoreBadge: {
+    backgroundColor: Colors.primary + '12',
+    borderRadius: Radii.md,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  scoreBadgeSelected: {
+    backgroundColor: Colors.primary,
+  },
+  scoreText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  scoreUnit: {
+    fontSize: 10,
+    color: Colors.primary,
     fontWeight: '600',
-    color: '#000'
+    marginTop: -2,
   },
-  rideScore: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.primary
-  },
-  rideDetails: {
+  rideStatsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8
+    backgroundColor: Colors.borderLight,
+    borderRadius: Radii.sm,
+    padding: 12,
+    marginBottom: 8,
   },
-  detailItem: {
+  rideStat: {
+    flexDirection: 'row',
     alignItems: 'center',
-    flex: 1
   },
-  detailLabel: {
-    fontSize: 14,
-    marginBottom: 2
+  rideStatIcon: {
+    fontSize: 12,
+    marginRight: 4,
   },
-  detailValue: {
+  rideStatValue: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#000'
+    color: Colors.text,
   },
-  routeName: {
-    fontSize: 12,
-    color: Colors.muted,
-    marginTop: 4
-  }
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  bikeTag: { backgroundColor: Colors.primary + '12', borderRadius: Radii.full, paddingHorizontal: 10, paddingVertical: 3 },
+  bikeTagText: { fontSize: 11, fontWeight: '600', color: Colors.primary },
+  routeTag: { backgroundColor: Colors.borderLight, borderRadius: Radii.full, paddingHorizontal: 10, paddingVertical: 3 },
+  routeTagText: { fontSize: 11, fontWeight: '500', color: Colors.textSecondary },
+  selectedIndicator: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

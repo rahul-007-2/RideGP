@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors } from '../lib/theme';
+import { Colors, Typography, Shadows, Radii, Spacing } from '../lib/theme';
+import { BackHeader, Card, EmptyState, Divider } from '../lib/components';
 import { API_URL } from '@env';
 
-export default function InsightsScreen() {
+export default function InsightsScreen({ navigation }) {
   const [commuteInsights, setCommuteInsights] = useState(null);
   const [smartInsights, setSmartInsights] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -17,18 +18,16 @@ export default function InsightsScreen() {
       const authToken = await AsyncStorage.getItem('authToken');
       if (!authToken) return;
 
-      // Get commute insights
       const commuteRes = await fetch(`${serverUrl}/api/community/insights/commute`, {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { Authorization: `Bearer ${authToken}` },
       });
       if (commuteRes.ok) {
         const data = await commuteRes.json();
         setCommuteInsights(data.insights);
       }
 
-      // Get smart insights
       const smartRes = await fetch(`${serverUrl}/api/community/insights/smart`, {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { Authorization: `Bearer ${authToken}` },
       });
       if (smartRes.ok) {
         const data = await smartRes.json();
@@ -46,138 +45,138 @@ export default function InsightsScreen() {
     loadInsights();
   }, []);
 
-  if (loading) {
-    return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
-  }
-
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadInsights(); }} />}
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>💡 Smart Insights</Text>
-      </View>
+    <View style={styles.container}>
+      <BackHeader title="Smart Insights" navigation={navigation} />
 
-      {/* Commute Insights */}
-      {commuteInsights && (
-        <>
-          <View style={styles.card}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadInsights(); }} tintColor={Colors.primary} />}
+      >
+        {/* Commute Insights */}
+        {commuteInsights && (
+          <Card>
             <Text style={styles.cardTitle}>📊 Commute Insights</Text>
 
             {commuteInsights.message ? (
-              <Text style={styles.noData}>{commuteInsights.message}</Text>
+              <EmptyState icon="📊" title="Not enough data" message={commuteInsights.message} />
             ) : (
               <>
-                <View style={styles.insightRow}>
-                  <Text style={styles.insightLabel}>🕐 Typical Departure Time</Text>
-                  <Text style={styles.insightValue}>{commuteInsights.typical_departure_time}</Text>
-                </View>
+                <InsightRow
+                  icon="🕐"
+                  label="Typical Departure"
+                  value={commuteInsights.typical_departure_time}
+                />
+                <Divider />
 
                 {commuteInsights.today_comparison && (
                   <>
-                    <View style={styles.divider} />
-                    <Text style={styles.insightSubtitle}>Today vs Your Average</Text>
-
-                    <View style={styles.insightRow}>
-                      <Text style={styles.insightLabel}>⚡ Speed Difference</Text>
-                      <Text style={[
-                        styles.insightValue,
-                        { color: commuteInsights.today_comparison.speed_diff_percent > 0 ? '#ff3b30' : Colors.primary }
-                      ]}>
-                        {commuteInsights.today_comparison.speed_diff_percent > 0 ? '+' : ''}{commuteInsights.today_comparison.speed_diff_percent}%
-                      </Text>
-                    </View>
-
-                    <View style={styles.insightRow}>
-                      <Text style={styles.insightLabel}>🛑 Traffic Stops Difference</Text>
-                      <Text style={[
-                        styles.insightValue,
-                        { color: commuteInsights.today_comparison.stops_diff < 0 ? Colors.primary : '#ff3b30' }
-                      ]}>
-                        {commuteInsights.today_comparison.stops_diff > 0 ? '+' : ''}{commuteInsights.today_comparison.stops_diff}
-                      </Text>
-                    </View>
-
-                    <View style={styles.insightRow}>
-                      <Text style={styles.insightLabel}>⛽ Fuel Cost Difference</Text>
-                      <Text style={styles.insightValue}>
-                        ₹{commuteInsights.today_comparison.fuel_cost_diff}
-                      </Text>
-                    </View>
+                    <Text style={styles.sectionLabel}>Today vs Average</Text>
+                    <InsightRow
+                      icon="⚡"
+                      label="Speed Difference"
+                      value={`${commuteInsights.today_comparison.speed_diff_percent > 0 ? '+' : ''}${commuteInsights.today_comparison.speed_diff_percent}%`}
+                      valueColor={
+                        commuteInsights.today_comparison.speed_diff_percent > 0
+                          ? Colors.error
+                          : Colors.success
+                      }
+                    />
+                    <InsightRow
+                      icon="🛑"
+                      label="Traffic Stops"
+                      value={`${commuteInsights.today_comparison.stops_diff > 0 ? '+' : ''}${commuteInsights.today_comparison.stops_diff}`}
+                      valueColor={
+                        commuteInsights.today_comparison.stops_diff < 0
+                          ? Colors.success
+                          : Colors.error
+                      }
+                    />
+                    <InsightRow
+                      icon="⛽"
+                      label="Fuel Cost Diff"
+                      value={`₹${commuteInsights.today_comparison.fuel_cost_diff}`}
+                    />
+                    <Divider />
                   </>
                 )}
 
-                <View style={styles.divider} />
-
-                <View style={styles.insightRow}>
-                  <Text style={styles.insightLabel}>💰 Cost Savings vs Last Ride</Text>
-                  <Text style={[
-                    styles.insightValue,
-                    { color: commuteInsights.cost_savings_vs_last_ride > 0 ? Colors.primary : '#ff3b30' }
-                  ]}>
-                    ₹{commuteInsights.cost_savings_vs_last_ride}
-                  </Text>
-                </View>
-
-                <View style={styles.insightRow}>
-                  <Text style={styles.insightLabel}>🚨 Peak Traffic Hour</Text>
-                  <Text style={styles.insightValue}>{commuteInsights.peak_traffic_hour}</Text>
-                </View>
-
-                <View style={styles.insightRow}>
-                  <Text style={styles.insightLabel}>📈 Total Commutes Tracked</Text>
-                  <Text style={styles.insightValue}>{commuteInsights.total_commutes_tracked}</Text>
-                </View>
+                <InsightRow
+                  icon="💰"
+                  label="Cost Savings vs Last"
+                  value={`₹${commuteInsights.cost_savings_vs_last_ride}`}
+                  valueColor={commuteInsights.cost_savings_vs_last_ride > 0 ? Colors.success : Colors.error}
+                />
+                <InsightRow
+                  icon="🚨"
+                  label="Peak Traffic Hour"
+                  value={commuteInsights.peak_traffic_hour}
+                />
+                <InsightRow
+                  icon="📈"
+                  label="Commutes Tracked"
+                  value={commuteInsights.total_commutes_tracked}
+                />
               </>
             )}
-          </View>
-        </>
-      )}
+          </Card>
+        )}
 
-      {/* Smart Insights */}
-      {smartInsights && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🎯 Smart Recommendations</Text>
+        {/* Smart Recommendations */}
+        {smartInsights && (
+          <Card>
+            <Text style={styles.cardTitle}>🎯 Smart Recommendations</Text>
 
-          {smartInsights.message ? (
-            <Text style={styles.noData}>{smartInsights.message}</Text>
-          ) : (
-            <>
-              <View style={styles.recommendationBox}>
-                <Text style={styles.recommendationIcon}>🕐</Text>
-                <View style={styles.recommendationContent}>
-                  <Text style={styles.recommendationTitle}>Best Departure Time</Text>
-                  <Text style={styles.recommendationText}>{smartInsights.recommended_departure_time}</Text>
-                </View>
-              </View>
+            {smartInsights.message ? (
+              <EmptyState icon="🎯" title="Not enough data" message={smartInsights.message} />
+            ) : (
+              <>
+                <RecommendationCard
+                  icon="🕐"
+                  title="Best Departure Time"
+                  text={smartInsights.recommended_departure_time}
+                />
+                <RecommendationCard
+                  icon="😴"
+                  title="Idle Time"
+                  text={smartInsights.idle_time_percentage}
+                />
+                <RecommendationCard
+                  icon="📊"
+                  title="Month-over-Month"
+                  text={smartInsights.month_over_month_improvement}
+                />
+              </>
+            )}
+          </Card>
+        )}
 
-              <View style={styles.recommendationBox}>
-                <Text style={styles.recommendationIcon}>😴</Text>
-                <View style={styles.recommendationContent}>
-                  <Text style={styles.recommendationTitle}>Idle Time</Text>
-                  <Text style={styles.recommendationText}>{smartInsights.idle_time_percentage}</Text>
-                </View>
-              </View>
+        <View style={{ height: 100 }} />
+      </ScrollView>
+    </View>
+  );
+}
 
-              <View style={styles.recommendationBox}>
-                <Text style={styles.recommendationIcon}>📊</Text>
-                <View style={styles.recommendationContent}>
-                  <Text style={styles.recommendationTitle}>Month-over-Month Improvement</Text>
-                  <Text style={styles.recommendationText}>{smartInsights.month_over_month_improvement}</Text>
-                </View>
-              </View>
-            </>
-          )}
-        </View>
-      )}
+function InsightRow({ icon, label, value, valueColor }) {
+  return (
+    <View style={insightStyles.row}>
+      <Text style={insightStyles.icon}>{icon}</Text>
+      <Text style={insightStyles.label}>{label}</Text>
+      <Text style={[insightStyles.value, valueColor && { color: valueColor }]}>{value}</Text>
+    </View>
+  );
+}
 
-      <View style={{ height: 30 }} />
-    </ScrollView>
+function RecommendationCard({ icon, title, text }) {
+  return (
+    <View style={recStyles.container}>
+      <Text style={recStyles.icon}>{icon}</Text>
+      <View style={recStyles.content}>
+        <Text style={recStyles.title}>{title}</Text>
+        <Text style={recStyles.text}>{text}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -185,86 +184,73 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    padding: 16
   },
-  header: {
-    marginBottom: 20
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#000'
-  },
-  card: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16
+  scrollContent: {
+    paddingHorizontal: Spacing.lg,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 12
+    ...Typography.h3,
+    marginBottom: 16,
   },
-  noData: {
-    textAlign: 'center',
-    color: Colors.muted,
-    paddingVertical: 20
+  sectionLabel: {
+    ...Typography.small,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    marginTop: 4,
   },
-  insightRow: {
+});
+
+const insightStyles = StyleSheet.create({
+  row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)'
   },
-  insightLabel: {
-    fontSize: 14,
-    color: '#000',
-    fontWeight: '500'
+  icon: {
+    fontSize: 16,
+    marginRight: 10,
   },
-  insightValue: {
+  label: {
+    flex: 1,
+    ...Typography.body,
     fontSize: 14,
+    fontWeight: '500',
+  },
+  value: {
+    ...Typography.body,
     fontWeight: '700',
-    color: Colors.primary
-  },
-  insightSubtitle: {
-    fontSize: 12,
-    color: Colors.muted,
-    marginTop: 12,
-    marginBottom: 8,
-    fontWeight: '600'
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    marginVertical: 12
-  },
-  recommendationBox: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(59, 209, 227, 0.05)',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    alignItems: 'flex-start'
-  },
-  recommendationIcon: {
-    fontSize: 24,
-    marginRight: 12
-  },
-  recommendationContent: {
-    flex: 1
-  },
-  recommendationTitle: {
+    color: Colors.primary,
     fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 4
   },
-  recommendationText: {
+});
+
+const recStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    backgroundColor: Colors.borderLight,
+    borderRadius: Radii.md,
+    padding: 14,
+    marginBottom: 10,
+    alignItems: 'flex-start',
+  },
+  icon: {
+    fontSize: 22,
+    marginRight: 12,
+    marginTop: 2,
+  },
+  content: {
+    flex: 1,
+  },
+  title: {
+    ...Typography.label,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: 3,
+  },
+  text: {
+    ...Typography.caption,
     fontSize: 13,
-    color: Colors.muted
-  }
+  },
 });

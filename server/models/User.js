@@ -7,7 +7,22 @@ const UserSchema = new Schema({
   name: { type: String, required: true },
   password_hash: { type: String, required: true },
   
-  // Bike Information
+  // Bike Garage (multi-bike support)
+  bikes: [{
+    bike_id: { type: String, required: true },
+    nickname: { type: String, default: '' },
+    make: { type: String, default: '' },
+    model: { type: String, default: '' },
+    year: { type: Number, default: null },
+    color: { type: String, default: '' },
+    registration_number: { type: String, default: '' },
+    fuel_efficiency_kmpl: { type: Number, default: 40 },
+    fuel_price_per_liter: { type: Number, default: 90 },
+    last_service_date: { type: Date, default: null }
+  }],
+  active_bike_id: { type: String, default: null },
+  
+  // Legacy fields (kept for backward compatibility during migration)
   bike_model: { type: String, default: 'Unknown' },
   bike_details: {
     make: { type: String, default: '' },
@@ -19,8 +34,6 @@ const UserSchema = new Schema({
     last_service_date: { type: Date, default: null },
     registration_number: { type: String, default: '' }
   },
-  
-  // Legacy fields (for backward compatibility)
   fuel_efficiency_kmpl: { type: Number, default: 40 },
   fuel_price_per_liter: { type: Number, default: 90 },
   

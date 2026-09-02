@@ -11,4 +11,10 @@ router.post('/login', authController.login);
 router.get('/profile', authenticateToken, authController.getProfile);
 router.put('/profile', authenticateToken, authController.updateProfile);
 
+// Bike garage routes
+router.post('/bikes', authenticateToken, authController.addBike);
+router.put('/bikes/:bikeId', authenticateToken, authController.updateBike);
+router.delete('/bikes/:bikeId', authenticateToken, authController.removeBike);
+router.put('/bikes/:bikeId/activate', authenticateToken, authController.setActiveBike);
+
 module.exports = router;

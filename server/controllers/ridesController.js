@@ -9,7 +9,7 @@ const { computeRideMetrics, computeRideScore, estimateFuelCost, hashCoordinates,
 async function createRide(req, res) {
   try {
     const userId = req.user.userId;
-    const { metrics, geo, fuel_cost, score, route_name, origin, destination, ride_type } = req.body;
+    const { metrics, geo, fuel_cost, score, route_name, origin, destination, ride_type, bike_id, bike_name } = req.body;
 
     if (!geo || geo.length < 2) {
       return res.status(400).json({ error: 'Ride must have at least 2 GPS points' });
@@ -62,7 +62,9 @@ async function createRide(req, res) {
       end_time: endTime,
       day_of_week: dayOfWeek,
       ride_type: ride_type || 'commute',
-      is_commute: isCommuteDay(startTime)
+      is_commute: isCommuteDay(startTime),
+      bike_id: bike_id || null,
+      bike_name: bike_name || ''
     });
 
     await ride.save();

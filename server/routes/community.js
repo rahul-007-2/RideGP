@@ -21,4 +21,8 @@ router.get('/insights/smart', communityController.getSmartInsights);
 // Get or generate monthly wrapped
 router.get('/wrapped', communityController.getMonthlyWrapped);
 
+// Community posts
+router.get('/posts', communityController.getPosts);
+router.post('/posts', communityController.createPost);
+
 module.exports = router;

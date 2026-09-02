@@ -11,13 +11,9 @@ app.use(express.json());
 // Health check
 app.get('/', (req, res) => res.json({ ok: true, message: 'RideGP Backend API' }));
 
-// Connect to MongoDB if configured
+// MongoDB URI
 const MONGODB_URI = process.env.MONGODB_URI;
-if (MONGODB_URI) {
-	mongoose.connect(MONGODB_URI)
-		.then(() => console.log('✓ MongoDB connected'))
-		.catch(err => console.warn('✗ MongoDB connection failed:', err.message));
-} else {
+if (!MONGODB_URI) {
 	console.warn('⚠ MongoDB URI not configured - database features will not work');
 }
 
@@ -29,6 +25,7 @@ const Achievement = require('./models/Achievement');
 const Streak = require('./models/Streak');
 const RouteCohort = require('./models/RouteCohort');
 const MonthlyWrapped = require('./models/MonthlyWrapped');
+const Post = require('./models/Post');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -100,25 +97,41 @@ app.use((err, req, res, next) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => {
-	console.log(`\n🚀 RideGP Server running on port ${port}`);
-	console.log(`📍 Base URL: http://localhost:${port}`);
-	console.log(`\n📚 API Routes:`);
-	console.log(`   POST   /api/auth/register - Register new user`);
-	console.log(`   POST   /api/auth/login - Login user`);
-	console.log(`   GET    /api/auth/profile - Get user profile`);
-	console.log(`   PUT    /api/auth/profile - Update user profile`);
-	console.log(`   POST   /api/rides - Create new ride`);
-	console.log(`   GET    /api/rides - Get user's rides`);
-	console.log(`   GET    /api/rides/:rideId - Get specific ride`);
-	console.log(`   POST   /api/rides/compare - Compare rides`);
-	console.log(`   POST   /api/gamification/achievements/check - Check achievements`);
-	console.log(`   GET    /api/gamification/achievements - Get user's achievements`);
-	console.log(`   POST   /api/gamification/streak/update - Update streak`);
-	console.log(`   GET    /api/gamification/streak - Get streak info`);
-	console.log(`   GET    /api/community/route-stats - Get route community stats`);
-	console.log(`   GET    /api/community/routes - Get user's routes`);
-	console.log(`   GET    /api/community/insights/commute - Get commute insights`);
-	console.log(`   GET    /api/community/insights/smart - Get smart insights`);
-	console.log(`   GET    /api/community/wrapped - Get monthly wrapped\n`);
-});
+
+// Wait for MongoDB before accepting requests (if URI is configured)
+async function start() {
+	if (MONGODB_URI) {
+		try {
+			await mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
+			console.log('✓ MongoDB connected (verified)');
+		} catch (err) {
+			console.warn('✗ MongoDB connection failed:', err.message);
+			console.warn('  Server will start but database features may not work.');
+		}
+	}
+
+	app.listen(port, () => {
+		console.log(`\n🚀 RideGP Server running on port ${port}`);
+		console.log(`📍 Base URL: http://localhost:${port}`);
+		console.log(`\n📚 API Routes:`);
+		console.log(`   POST   /api/auth/register - Register new user`);
+		console.log(`   POST   /api/auth/login - Login user`);
+		console.log(`   GET    /api/auth/profile - Get user profile`);
+		console.log(`   PUT    /api/auth/profile - Update user profile`);
+		console.log(`   POST   /api/rides - Create new ride`);
+		console.log(`   GET    /api/rides - Get user's rides`);
+		console.log(`   GET    /api/rides/:rideId - Get specific ride`);
+		console.log(`   POST   /api/rides/compare - Compare rides`);
+		console.log(`   POST   /api/gamification/achievements/check - Check achievements`);
+		console.log(`   GET    /api/gamification/achievements - Get user's achievements`);
+		console.log(`   POST   /api/gamification/streak/update - Update streak`);
+		console.log(`   GET    /api/gamification/streak - Get streak info`);
+		console.log(`   GET    /api/community/route-stats - Get route community stats`);
+		console.log(`   GET    /api/community/routes - Get user's routes`);
+		console.log(`   GET    /api/community/insights/commute - Get commute insights`);
+		console.log(`   GET    /api/community/insights/smart - Get smart insights`);
+		console.log(`   GET    /api/community/wrapped - Get monthly wrapped\n`);
+	});
+}
+
+start();

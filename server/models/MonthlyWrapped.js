@@ -35,6 +35,21 @@ const MonthlyWrappedSchema = new Schema({
   fuel_efficiency_percentile: { type: Number },
   consistency_percentile: { type: Number },
   
+  // Bike-wise breakdown
+  bike_stats: [{
+    bike_id: { type: String },
+    bike_name: { type: String },
+    rides: { type: Number, default: 0 },
+    total_distance_km: { type: Number, default: 0 },
+    total_time_minutes: { type: Number, default: 0 },
+    total_fuel_cost: { type: Number, default: 0 },
+    avg_score: { type: Number, default: 0 },
+    best_score: { type: Number, default: 0 },
+    distance_share: { type: Number, default: 0 } // percentage
+  }],
+  most_ridden_bike: { type: String },
+  best_scoring_bike: { type: String },
+
   // Achievements unlocked this month
   achievements_unlocked: [{ type: Schema.Types.ObjectId, ref: 'Achievement' }],
   

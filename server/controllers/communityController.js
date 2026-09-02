@@ -275,6 +275,48 @@ async function getMonthlyWrapped(req, res) {
       // Calculate percentiles (simplified)
       const smoothnessPercentile = Math.round((avgScore / 100) * 100);
 
+      // ─── Bike-wise breakdown ────────────────────────────────────
+      const bikeMap = {};
+      for (const ride of rides) {
+        const bId = ride.bike_id || 'unknown';
+        if (!bikeMap[bId]) {
+          bikeMap[bId] = {
+            bike_id: bId,
+            bike_name: ride.bike_name || 'Unknown Bike',
+            rides: 0,
+            total_distance_km: 0,
+            total_time_minutes: 0,
+            total_fuel_cost: 0,
+            scores: [],
+            best_score: 0
+          };
+        }
+        const b = bikeMap[bId];
+        b.rides += 1;
+        b.total_distance_km += ride.metrics?.distance_km || 0;
+        b.total_time_minutes += ride.metrics?.duration_minutes || 0;
+        b.total_fuel_cost += ride.fuel_cost || 0;
+        b.scores.push(ride.score || 0);
+        if ((ride.score || 0) > b.best_score) b.best_score = ride.score;
+      }
+
+      const bikeStats = Object.values(bikeMap).map(b => ({
+        bike_id: b.bike_id,
+        bike_name: b.bike_name,
+        rides: b.rides,
+        total_distance_km: Math.round(b.total_distance_km * 100) / 100,
+        total_time_minutes: Math.round(b.total_time_minutes * 100) / 100,
+        total_fuel_cost: Math.round(b.total_fuel_cost * 100) / 100,
+        avg_score: b.scores.length > 0 ? Math.round((b.scores.reduce((a, c) => a + c, 0) / b.scores.length) * 100) / 100 : 0,
+        best_score: b.best_score,
+        distance_share: totalDistance > 0 ? Math.round((b.total_distance_km / totalDistance) * 100) : 0
+      })).sort((a, b) => b.rides - a.rides);
+
+      // Most ridden bike
+      const mostRiddenBike = bikeStats.length > 0 ? bikeStats[0] : null;
+      // Best scoring bike (with at least 2 rides)
+      const bestScoringBike = bikeStats.filter(b => b.rides >= 2).sort((a, b) => b.avg_score - a.avg_score)[0] || null;
+
       wrapped = new MonthlyWrapped({
         user_id: userId,
         month: targetMonth,
@@ -288,8 +330,11 @@ async function getMonthlyWrapped(req, res) {
         best_ride_score: bestRide.score,
         longest_ride_id: longestRide._id,
         longest_ride_distance: longestRide.metrics?.distance_km,
-        most_used_route: 'Top Route', // Simplified
-        smoothness_percentile: smoothnessPercentile
+        most_used_route: 'Top Route',
+        smoothness_percentile: smoothnessPercentile,
+        bike_stats: bikeStats,
+        most_ridden_bike: mostRiddenBike?.bike_name || null,
+        best_scoring_bike: bestScoringBike?.bike_name || null
       });
 
       await wrapped.save();
@@ -302,10 +347,57 @@ async function getMonthlyWrapped(req, res) {
   }
 }
 
+/**
+ * Get community posts
+ */
+async function getPosts(req, res) {
+  try {
+    const Post = require('../models/Post');
+    const posts = await Post.find().sort({ created_at: -1 }).limit(50);
+    res.json({ posts });
+  } catch (err) {
+    console.error('Get posts error:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * Create a community post
+ */
+async function createPost(req, res) {
+  try {
+    const Post = require('../models/Post');
+    const User = require('../models/User');
+    const userId = req.user.userId;
+    const { title, content, image_url } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+
+    const user = await User.findById(userId);
+    const post = new Post({
+      user_id: userId,
+      user_name: user?.name || 'Anonymous',
+      title: title.trim(),
+      content: (content || '').trim(),
+      image_url: image_url || null
+    });
+    await post.save();
+
+    res.status(201).json({ message: 'Post created', post });
+  } catch (err) {
+    console.error('Create post error:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   getRouteCommunityStats,
   getUserRoutes,
   getCommuteInsights,
   getSmartInsights,
-  getMonthlyWrapped
+  getMonthlyWrapped,
+  getPosts,
+  createPost
 };
