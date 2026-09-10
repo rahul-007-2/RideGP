@@ -849,9 +849,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Contact
 
-- **Email**: your-email@example.com
-- **GitHub**: [@yourhandle](https://github.com)
-- **Website**: [your-website.com](https://your-website.com)
+- **Email**: rahul2007.rsrv
+- **GitHub**: [@yourhandle](https://github.com/rahul-007-2)
+- **Website**: [your-website.com](https://rahulvigneshrs-portfolio.onrender.com/)
 
 ---
 
